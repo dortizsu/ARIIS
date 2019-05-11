@@ -1,0 +1,12 @@
+author: D.G. Ortiz-Suslow
+packaged: 02/14/19
+disclaimer: This software is provided as-is with no guarantee of functionality or fitness for the task for which it was designed to complete. This software is provided for the purposes of reviewing the Ortiz-Suslow et al. 2019 manuscript submission to the AMS Journal of Atmospheric and Oceanic Technology. It is not meant to be distributed, modified, or any way used other than for the express purpose reviewing the submission.
+
+All inquires and permission requests should be directed to the corresponding author: Professor Qing Wang, qwang@nps.edu
+
+** Built and tested on MATLAB v2018b. **
+
+Contents:
+* ariis.m --> main program, all necessary input functions provided within.
+* ariis_demo --> simple script that demonstrates ariis capability.
+* test.mat
