@@ -1,12 +1,10 @@
-author: D.G. Ortiz-Suslow
-packaged: 02/14/19
-disclaimer: This software is provided as-is with no guarantee of functionality or fitness for the task for which it was designed to complete. This software is provided for the purposes of reviewing the Ortiz-Suslow et al. 2019 manuscript submission to the AMS Journal of Atmospheric and Oceanic Technology. It is not meant to be distributed, modified, or any way used other than for the express purpose reviewing the submission.
+Copyright 05/13/19
+D. G. Ortiz-Suslow
 
-All inquires and permission requests should be directed to the corresponding author: Professor Qing Wang, qwang@nps.edu
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
 
-** Built and tested on MATLAB v2018b. **
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
-Contents:
-* ariis.m --> main program, all necessary input functions provided within.
-* ariis_demo --> simple script that demonstrates ariis capability.
-* test.mat
+TO-BE CITED UPON USE: Ortiz-Suslow, Wang, Kalogiros, and Yamaguchi (2019), "A Method for Identifying Kolmogorov's Inertial Subrange in the Velocity Variance Spectrum using Marine Atmospheric Surface Layer Measurements", Journal of Atmospheric and Oceanic Technology
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
