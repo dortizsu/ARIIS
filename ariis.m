@@ -1,7 +1,7 @@
 function A = ariis(m,inputs,constants)
 	% A = ariis(m,inputs,constants)
 	%
-	% version: 2.1, 2/14/2019
+	% version: 2.2, 7/2/2019
 	%
 	% ... preamble
 	% Algorithm for Robustly Identifying the Inertial Subrange (ARIIS)
@@ -51,21 +51,16 @@ function A = ariis(m,inputs,constants)
 	% 7 --> u-w Isotropy coefficient, only from f-bins used in fitting
 	% 8 --> u-v Isotropy coefficient
 	% 9 --> u-v Isotropy coefficient, only from f-bins used in fitting
-	% 10 --> amplitude (A) of Suu ~ A*f^{p}
-	% 11--> power (p) of Suu ~ A*f^{p}
-	% 12--> linear coefficient of determination from fit (i.e Pearson's correlation)
-	% 13--> 95% confidence interval lower bound for p
-	% 14--> 95% confidence interval upper bound for p
-	% 15--> amplitude (A) of Svv ~ A*f^{p}
-	% 16--> power (p) of Svv ~ A*f^{p}
+	% 10--> power (p) of Suu ~ A*f^{p}
+	% 11--> linear coefficient of determination from fit (i.e Pearson's correlation)
+	% 12--> delta for p, as in p +/- delta spans 95% confidence interval
+	% 13--> power (p) of Svv ~ A*f^{p}
+	% 14--> linear coefficient of determination from fit (i.e Pearson's correlation)
+	% 15--> delta for p, as in p +/- delta spans 95% confidence interval
+	% 16--> power (p) of Sww ~ A*f^{p}
 	% 17--> linear coefficient of determination from fit (i.e Pearson's correlation)
-	% 18--> 95% confidence interval lower bound for p
-	% 19--> 95% confidence interval upper bound for p
-	% 20--> amplitude (A) of Sww ~ A*f^{p}
-	% 21--> power (p) of Sww ~ A*f^{p}
-	% 22--> linear coefficient of determination from fit (i.e Pearson's correlation)
-	% 23--> 95% confidence interval lower bound for p
-	% 24--> 95% confidence interval upper bound for p
+	% 18--> delta for p, as in p +/- delta spans 95% confidence interval
+	%
 	flags = [];
 	% References:
 	% Kolmogorov, A. The Local Structure of Turbulence in Incompressible Viscous Fluid for Very Large Reynolds Numbers. Dokl. Akad. Nauk SSSR 1941.
@@ -83,6 +78,7 @@ function A = ariis(m,inputs,constants)
 	% v1.1 --> changed default low frequency cut-off for R convergence to U/z, instead of 1/3 Hz; more general.
 	% v2 --> changed to fitting non-scaled spectra (expected p = -5/3) and added 95% confidence bounds for p
     % v2.1 --> include number of frequency bins in subrange as output
+	% v2.2 --> fixed bug in 95% confidence bound calculation, requires modifying local copy of rlogfit; adjust updated output, to only give delta (not full error bounds) and to NOT give amplitude
 	%..................................................................................
 	%...Prepare ARIIS..................................................................
 	%..................................................................................
@@ -232,24 +228,21 @@ function A = ariis(m,inputs,constants)
 				A = [];
 			else
 				A = [...
-                numel(IX),...%..........1
-				n(IX(1)),...%...........2
-				k(1),...%...............3
-				n(IX(end)),...%.........4
-				k(end),...%.............5
-				I,...%..................6/7/8/9
-				robfit(1).coeffs,...%...10/11
-				robfit(1).r2,...%.......12
-				robfit(1).ci(1,2),...%..13
-				robfit(1).ci(2,2),...%..14
-				robfit(2).coeffs,...%...15/16
-				robfit(2).r2,...%.......17
-				robfit(2).ci(1,2),...%..18
-				robfit(2).ci(2,2),...%..19
-				robfit(3).coeffs,...%...20/21
-				robfit(3).r2,...%.......22
-				robfit(3).ci(1,2),...%..23
-				robfit(3).ci(2,2)];%....24
+                numel(IX),...%....................1
+				n(IX(1)),...%.....................2
+				k(1),...%.........................3
+				n(IX(end)),...%...................4
+				k(end),...%.......................5
+				I,...%............................6/7/8/9
+				robfit(1).coeffs(2),...%..........10
+				robfit(1).r2,...%.................11
+				range(robfit(1).ci(:,2))/2,...%...12
+				robfit(2).coeffs(2),...%..........13
+				robfit(2).r2,...%.................14
+				range(robfit(2).ci(:,2))/2,...%...15
+				robfit(3).coeffs(2),...%..........16
+				robfit(3).r2,...%.................17
+				range(robfit(3).ci(:,2))/2];%.....18
 			end
 		end
 	elseif m == 1
@@ -353,24 +346,21 @@ function A = ariis(m,inputs,constants)
 				A = [];
 			else
 				A = [...
-                numel(IX),...%..........1
-				n(IX(1)),...%...........2
-				k(1),...%...............3
-				n(IX(end)),...%.........4
-				k(end),...%.............5
-				I,...%..................6/7/8/9
-				robfit(1).coeffs,...%...10/11
-				robfit(1).r2,...%.......12
-				robfit(1).ci(1,2),...%..13
-				robfit(1).ci(2,2),...%..14
-				robfit(2).coeffs,...%...15/16
-				robfit(2).r2,...%.......17
-				robfit(2).ci(1,2),...%..18
-				robfit(2).ci(2,2),...%..19
-				robfit(3).coeffs,...%...20/21
-				robfit(3).r2,...%.......22
-				robfit(3).ci(1,2),...%..23
-				robfit(3).ci(2,2)];%....24
+                numel(IX),...%....................1
+				n(IX(1)),...%.....................2
+				k(1),...%.........................3
+				n(IX(end)),...%...................4
+				k(end),...%.......................5
+				I,...%............................6/7/8/9
+				robfit(1).coeffs(2),...%..........10
+				robfit(1).r2,...%.................11
+				range(robfit(1).ci(:,2))/2,...%...12
+				robfit(2).coeffs(2),...%..........13
+				robfit(2).r2,...%.................14
+				range(robfit(2).ci(:,2))/2,...%...15
+				robfit(3).coeffs(2),...%..........16
+				robfit(3).r2,...%.................17
+				range(robfit(3).ci(:,2))/2];%.....18
 			end
 		end
 	else
@@ -449,26 +439,39 @@ function [rfitted,raw] = rlogfit(x,y,varargin)
 	N = length(x);
 	p = 1; % set for completeness, but rlogfit cannot handle more than 1 predictor, y
 	Dthresh = Dthresh/(N - p - 1); % Chatterjee and Hadi 1988
-	alpha = 0.025; % 95% percentile for two-sided t statistic used in defining confidence interval
+	alpha = 0.05; % 95% percentile for two-sided t statistic used in defining confidence interval
+	ci = tinv(1-alpha,S.df-1);
+	%
 	% calculate fitted response variable & complete residual
 	if strcmp('linear',fittype)
 		Yfit = B + M*x;
+		SE = stderr(x,y,Yfit);
 		coeffs = [B M];
+		bnds = [...
+			B-SE(2)*ci M-SE(1)*ci;...
+			B+SE(2)*ci M+SE(1)*ci];
 	elseif strcmp('logx',fittype)
 		Yfit = B + M*log10(x);
+		SE = stderr(log10(x),y,Yfit);
 		coeffs = [B M];
+		bnds = [...
+			B-SE(2)*ci M-SE(1)*ci;...
+			B+SE(2)*ci M+SE(1)*ci];
 	elseif strcmp('logy',fittype)
 		Yfit = (10^B)*(10^M).^x;
+		SE = stderr(x,log10(y),log10(Yfit));
 		coeffs = [10^B 10^M];
+		bnds = [...
+			10^(B-SE(2)*ci) 10^(M-SE(1)*ci);...
+			10^(B+SE(2)*ci) 10^(M+SE(1)*ci)];
 	elseif strcmp('loglog',fittype)
 		Yfit = (10^B)*x.^M;
+		SE = stderr(log10(x),log10(y),log10(Yfit));
 		coeffs = [10^B M];
+		bnds = [...
+			10^(B-SE(2)*ci) 10^(M-SE(1)*ci);...
+			10^(B+SE(2)*ci) 10^(M+SE(1)*ci)];
 	end
-	% get 95% CI for coefficients
-	ci = tinv(1-alpha,S.df-1); % gives 95% confidence interval multiplier for 2-sided distribution
-	SE = stderr(x,y,Yfit);
-	lb = [coeffs(1)-SE(1)*ci coeffs(2)-SE(2)*ci];
-	ub = [coeffs(1)+SE(1)*ci coeffs(2)+SE(2)*ci];
 	% output to structure
 	raw.model = fittype;
 	raw.coeffs = coeffs;
@@ -511,29 +514,41 @@ function [rfitted,raw] = rlogfit(x,y,varargin)
 		rfitted.r2 = 0;
 	else
 		[m,b,mse,r2,s] = logfit(x,y,fittype,'nograph');
+		ci = tinv(1-alpha,s.df-1); % gives 95% confidence interval multiplier for 2-sided distribution
 		if strcmp('linear',fittype)
 			yfit = b + m*x;
+			SE = stderr(x,y,yfit);
 			coeffs = [b m];
+			bnds = [...
+				b-SE(2)*ci m-SE(1)*ci;...
+				b+SE(2)*ci m+SE(1)*ci];
 		elseif strcmp('logx',fittype)
 			yfit = b + m*log10(x);
+			SE = stderr(log10(x),y,yfit);
 			coeffs = [b m];
+			bnds = [...
+				b-SE(2)*ci m-SE(1)*ci;...
+				b+SE(2)*ci m+SE(1)*ci];
 		elseif strcmp('logy',fittype)
 			yfit = (10^b)*(10^m).^x;
+			SE = stderr(x,log10(y),log10(yfit));
 			coeffs = [10^b 10^m];
+			bnds = [...
+				10^(b-SE(2)*ci) 10^(m-SE(1)*ci);...
+				10^(b+SE(2)*ci) 10^(m+SE(1)*ci)];
 		elseif strcmp('loglog',fittype)
 			yfit = (10^b)*x.^m;
+			SE = stderr(log10(x),log10(y),log10(yfit));
 			coeffs = [10^b m];
+			bnds = [...
+				10^(b-SE(2)*ci) (m-SE(1)*ci);...
+				10^(b+SE(2)*ci) (m+SE(1)*ci)];
 		end
-		% get 95% CI for coefficients
-		ci = tinv(1-alpha,s.df-1); % gives 95% confidence interval multiplier for 2-sided distribution
-		SE = stderr(x,y,yfit);
-		lb = [coeffs(1)-SE(1)*ci coeffs(2)-SE(2)*ci];
-		ub = [coeffs(1)+SE(1)*ci coeffs(2)+SE(2)*ci];
 		% output to structure
 		rfitted.indx = D<Dthresh;
 		rfitted.D = mean(D(D<Dthresh))/Dthresh;
 		rfitted.coeffs = coeffs;
-		rfitted.ci = [lb;ub];
+		rfitted.ci = bnds;
 		rfitted.yfit = yfit;
 		rfitted.mse = mse;
 		rfitted.r2 = r2;
