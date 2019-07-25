@@ -247,7 +247,7 @@ function A = ariis(m,inputs,constants)
 		end
 	elseif m == 1
 		%..ARIIS will use the spectra you give it.
-		%..Implications: you don't trust ARIIS spectral smoothing
+		%..Implications: you don't want ARIIS spectral smoothing
 		%
 		%...Grab input data
 		n = inputs.n;
@@ -474,8 +474,8 @@ function [rfitted,raw] = rlogfit(x,y,varargin)
 	end
 	% output to structure
 	raw.model = fittype;
-	raw.coeffs = coeffs;
-	raw.ci = [lb;ub];
+	raw.coeffs = coeffs; % [B M], re-scaled
+	raw.ci = bnds; % col 1 = lower (upper) bound for B, col 2 = lower (upper) bound for M | re-scaled
 	raw.yfit = Yfit;	
 	raw.mse = MSE;
 	raw.r2 = R2;
