@@ -7,7 +7,7 @@
 % disclaimer: This software is provided as-is with no guarantee of functionality or fitness for the task for which it was designed to complete.
 clear all; clf; close all
 % load test data
-load('./test.mat')
+load('./ariis_test.mat')
 % get sampling interval in seconds
 dt = mean(diff(t))*(3600*24);
 answ = input('Mode for ARIIS, time series (0) or spectral (1)? ','s');
@@ -26,7 +26,7 @@ if str2num(answ) == 0
 	%...............................................................
 	%..Below is a brief demo of the ARIIS output relative to input time series
 	%..initialize power spectrum call
-	Nfa = 1; % don't do any frequency averaging
+	Nfa = 1 % don't do any frequency averaging
 	Cuw = spectf(u,w,dt,Nfa); % see below for spectf.m
 	Cvw = spectf(v,w,dt,Nfa);
 	%..ARIIS processes using the nondimensional spectrum (see Kaimal et al. 1972 or Miyake et al. 1970)
@@ -45,10 +45,10 @@ if str2num(answ) == 0
 	figure(1)
 	ax1 = subplot(2,1,1); hold(ax1,'on')
 	hp = plot(t,[u v w],'-','LineWidth',2);
-	set(ax1,'Box','on','FontSize',25,'FontName','Times New Roman')
+	set(ax1,'Box','on','FontSize',20,'FontName','Times New Roman','FontAngle','italic')
 	datetick('x',15,'keepticks','keeplimits')
-	xlabel('t','FontSize',25,'FontName','Times New Roman')
-	ylabel('U','FontSize',25,'FontName','Times New Roman')
+	xlabel('\sl{t}','FontSize',25,'FontName','Times New Roman')
+	ylabel('\sl{U}','FontSize',25,'FontName','Times New Roman')
 	title('ARIIS results for 30 mins of data','FontSize',25,'FontName','Times New Roman')
 	legend(hp,' u',' v',' w')
 	axis tight
@@ -56,10 +56,10 @@ if str2num(answ) == 0
 	ax2 = subplot(2,1,2); hold(ax2,'on')
 	hl = loglog(f,[Fuu Fww],'LineWidth',2);
 	set(hl(2),'Color',get(hp(3),'Color'))
-	set(ax2,'Box','on','FontSize',25,'FontName','Times New Roman',...
+	set(ax2,'Box','on','FontSize',20,'FontName','Times New Roman','FontAngle','italic','MinorGridAlpha',0.15,...
 		'YScale','log','XScale','log','YLim',[1e-5 1e1],'Xlim',[1e-5 1e2])
-	xlabel('f = nUadv/z','FontSize',25,'FontName','Times New Roman')
-	ylabel('nS_{xx}/u_{*}^{2}(\sigma^{2}_{w})','FontSize',25,'FontName','Times New Roman')
+	xlabel('$$f = nU_{adv}/z$$','FontSize',25,'FontName','Times New Roman','Interpreter','Latex')
+	ylabel('$$nS_{uu}/u_{*}^{2} \, | \, nS_{ww}/\sigma^{2}_{w}$$','FontSize',25,'FontName','Times New Roman','Interpreter','Latex')
 	% add a Kolmogorov-like slope to axes 2
 	kx = logspace(log10(lb),log10(ub));
 	ky = 0.1*kx.^(-2/3);
@@ -76,8 +76,8 @@ if str2num(answ) == 0
 		'BackGroundColor','w','EdgeColor',[0.5 0 0])
 	leglabel = {...
 		[' Kolmogorov = -5/3'],...
-		[' u: ' num2str(A(11),'%.4f') ' \pm ' num2str(range(A(13:14))/2,'%.6f')],...
-		[' w: ' num2str(A(21),'%.4f') ' \pm ' num2str(range(A(23:24))/2,'%.6f')]};
+		[' u: ' num2str(A(10),'%.3f') ' \pm ' num2str(A(12),'%.3f')],...
+		[' w: ' num2str(A(16),'%.3f') ' \pm ' num2str(A(18),'%.3f')]};
 	legend([hkol;hl],leglabel,'Location','NorthWest')
 	set(gcf,'Position',[723 9 957 946])
 	disp(['ARIIS smooths spectra, Figure shows un-smoothed spectra.'])
@@ -90,17 +90,19 @@ else
     jj = mean(-vp.*wp);
 	ust = sqrt(sqrt(ii^2 + jj^2));
 	%..initialize power spectrum call
-	Nfa = 32; % do some frequency averaging (smoothing between modes 0 and 1 are DIFFERENT)
+	Nfa = 1; % do some frequency averaging (smoothing between modes 0 and 1 are DIFFERENT)
 	fcutoff = 16; % only accept data below Nyquist, here we'll be extra conservative
 	Cuw = spectf(u,w,dt,Nfa); % see below for spectf.m
 	Cvw = spectf(v,w,dt,Nfa);
 	Cuw(Cuw(:,1)>fcutoff,:) = [];
 	Cvw(Cvw(:,1)>fcutoff,:) = [];
+	% smooth
+	[smoothed,~] = logSmooth([Cuw(:,1) Cuw(:,2) Cvw(:,2) Cuw(:,3)],8);
 	% build ARIIS input structures
-	inputs.n = Cuw(:,1);
-	inputs.Suu = Cuw(:,2);
-	inputs.Svv = Cvw(:,2);
-	inputs.Sww = Cuw(:,3);
+	inputs.n = smoothed(:,1);
+	inputs.Suu = smoothed(:,2);
+	inputs.Svv = smoothed(:,3);
+	inputs.Sww = smoothed(:,4);
 	constants.ust = ust;
 	constants.varw = varw;
 	constants.Uadv = Uadv;
@@ -110,20 +112,21 @@ else
 	% call ARIIS
 	A = ariis(m,inputs,constants);
 	% surface layer frequency
-	f = Cuw(:,1)*zlevel/Uadv;
+	f = smoothed(:,1)*zlevel/Uadv;
 	% nondimensional autovariance wind velocity spectra
-	Fuu = Cuw(:,1).*Cuw(:,2)/(ust^2);
-	Fww = Cuw(:,1).*Cuw(:,3)/varw;
+	Fuu = smoothed(:,1).*smoothed(:,2)/(ust^2);
+	Fww = smoothed(:,1).*smoothed(:,4)/varw;
 	%..convert ARIIS frequency bandwidth to surface layer frequency
 	lb = A(2)*zlevel/Uadv; % lower frequency bound
 	ub = A(4)*zlevel/Uadv; % upper frequency bound
 	%...............................................................
 	hl = loglog(f,[Fuu Fww],'LineWidth',2);
 	hold(gca,'on')
-	set(gca,'Box','on','FontSize',25,'FontName','Times New Roman',...
+	set(gca,'Box','on','FontSize',20,'FontName','Times New Roman','FontAngle','italic','MinorGridAlpha',0.15,...
 		'YScale','log','XScale','log','YLim',[1e-5 1e1],'Xlim',[1e-5 1e2])
-	xlabel('f = nUadv/z','FontSize',25,'FontName','Times New Roman')
-	ylabel('nS_{xx}/u_{*}^{2}(\sigma^{2}_{w})','FontSize',25,'FontName','Times New Roman')
+	grid on
+	xlabel('$$f = nU_{adv}/z$$','FontSize',25,'FontName','Times New Roman','Interpreter','Latex')
+	ylabel('$$nS_{uu}/u_{*}^{2} \, | \, nS_{ww}/\sigma^{2}_{w}$$','FontSize',25,'FontName','Times New Roman','Interpreter','Latex')
 	% add a Kolmogorov-like slope to axes 2
 	kx = logspace(log10(lb),log10(ub));
 	ky = 0.1*kx.^(-2/3);
@@ -131,31 +134,29 @@ else
 	vl = vline([lb ub],'r--'); set(vl,'LineWidth',4)
 	px = [lb ub ub lb];
 	py = [1e-6 1e-6 1e1 1e1];
-	hpa = patch(px,py,'r','FaceAlpha',0.5); uistack(hpa,'bottom')
+	hpa = patch(px,py,'r','FaceAlpha',0.25); uistack(hpa,'bottom')
 	hkol = loglog(kx,ky,'k-','LineWidth',4);
 	% some additionals
-	text(6.5256,0.356,{'ARIIS-derived';'\sl{inertial subrange}'},...
+	ht = text(6.5256,0.356,{'ARIIS-derived';'\sl{inertial subrange}'},...
 		'FontSize',14,'FontName','Times New Roman',...
-		'FontWeight','Bold','Interpreter','latex','Color',[0.5 0 0],...
-		'BackGroundColor','w','EdgeColor',[0.5 0 0])
+		'FontWeight','Bold','Color',[0.5 0 0],...
+		'BackGroundColor','w','EdgeColor',[0.5 0 0]);
 	leglabel = {...
 		[' Kolmogorov = -5/3'],...
-		[' u: ' num2str(A(11),'%.4f') ' \pm ' num2str(range(A(13:14))/2,'%.6f')],...
-		[' w: ' num2str(A(21),'%.4f') ' \pm ' num2str(range(A(23:24))/2,'%.6f')]};
-	legend([hkol;hl],leglabel,'Location','NorthWest')
-	set(gcf,'Position',[723 9 957 946])
+		[' u: ' num2str(A(10),'%.3f') ' \pm ' num2str(A(12),'%.3f')],...
+		[' w: ' num2str(A(16),'%.3f') ' \pm ' num2str(A(18),'%.3f')]};
+	lh = legend([hkol;hl],leglabel,'Location','SouthWest');
+	set(gcf,'Position',[1570 510 786 474])
 	xlim([Cuw(1,1)/5 Cuw(end,1)*5])
+	set(ht,'Position',[2.1958 0.59835 0])
 	disp(['Smoothing used by ARIIS matches smoothing in figure.'])
 end
-
 disp('ARIIS outputs....')
-disp(['Subrange lo frequency bound = ' num2str(A(2),4) ' Hz'])
-disp(['Subrange hi frequency bound = ' num2str(A(4),4) ' Hz'])
-disp(['Isotropy (uw) = ' num2str(A(7),3)])
-disp(['Isotropy (uv) = ' num2str(A(9),3)])
+disp(['Subrange lo frequency bound = ' num2str(A(2),'%.4f') ' Hz'])
+disp(['Subrange hi frequency bound = ' num2str(A(4),'%.1f') ' Hz'])
+disp(['Isotropy (uw) = ' num2str(A(7),'%.2f')])
+disp(['Isotropy (uv) = ' num2str(A(9),'%.2f')])
 disp('........................')
-
-
 %...............................................................
 % demo complete
 %...............................................................
@@ -329,4 +330,69 @@ function w = blackhar(n)
     %  K.Kahma 1989-07-20
     m = (0:n-1)' * ( 2*pi/(n-1) ) ;
     w = (.35875 - .48829*cos(m) + .14128*cos(2*m) - 0.01168*cos(3*m) ) ;
+end
+function [sf,stdsf]=logSmooth(f,varargin)
+	%
+	%  [sf,stdsf]=logSmooth(f:array,a)
+	%
+	% Log-uniform smoothing of f using bin-averaging technique.
+	% Inputs:
+	% f --> column vector needing smoothing. If f is array, operates on columns.
+	% !! logSmooth assumes column vector or that inputs are to be operated over columns !!
+	% a (optional) --> control width of smoothing windows, increasing a decreases smooth (default = 4)
+	%
+	% Outputs:
+	% sf --> smoothed f (or array).
+	% stdsf --> standard error of the means over each bin, x1.96 gives 95% confidence interval.
+	%
+	% Original code: Ioannis Kalogiros (5/3/2000) in Matlab v5.3
+	% Including "a": D. Ortiz-Suslow (2018) Matlab v2018a/
+	%
+	if size(f,1) == 1
+		f = f(:);
+		warning('logSmooth only takes column vectors or operates over columns')
+	end
+	% Initialization
+	a = 4; % default
+	if nargin > 1
+		a = varargin{1};
+	end
+	nf = size(f,1); % number of frequency bins
+	m = a*(log(nf)/log(2)-1); 
+	m = round(m) - a; % number of uniformly spaced averaging windows
+	if nf<=a || m<=0 % cannot work on very narrow spectra
+		warning('Asking to smooth a spectrum that is shorter than your smoothing window...')
+		sf=f;
+		return
+	end
+	% bin-averaging routine
+	dl = log(nf-a)/m;
+	sf(1:a,:) = 0.5*(f(1:a,:) + f(2:a+1,:)); % leading bin central difference
+	stdsf(1:a,:) = sqrt(0.5*(f(1:a,:) - f(2:a+1,:)).^2); % leading bin central deviation
+	l1p=0; l2p=0; np=[];
+	for n = 1:m
+	   l1 = (n-1)*dl;
+	   l2 = l1+dl;
+	   l1 = round(exp(l1))+a;
+	   l2 = round(exp(l2))+a;
+	   l1 = max(l1,1);
+	   l1 = min(l1,nf);
+	   l2 = max(l2,1);
+	   l2 = min(l2,nf);
+	   if l2==l1 && l2<nf
+		   l2=l2+1;
+	   end
+	   k = l1:l2;
+	   sf(n+a,:) = mean(f(k,:),1);
+	   stdsf(n+a,:) =  std(f(k,:),1);
+	   stdsf(n+a,:) = sem(stdsf(n+a,:),'flags',length(k));
+	   if l1==l1p && l2==l2p 
+		   np=[np;n+a];
+	   end
+	   l1p=l1;
+	   l2p=l2;
+	   bins(n,:) = [l1 l2];
+	end
+	sf(np,:)=[];
+	stdsf(np,:) = [];
 end
