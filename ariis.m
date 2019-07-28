@@ -884,6 +884,22 @@ function S = spectf(x,y,dt,Nfa,a0)
 	   coh   = abs(Pxy./sqrt(Pxx.*Pyy));
 	   clear Xx Yy window sx sy sxy
 	   S = [f/2/pi;2*pi*Pxx;2*pi*Pyy;2*pi*Pxy;phase;coh].';
+   end
+end
+%
+%.................................................................................
+% below is an unaltered copy/paste of blackhar.m; needed for spectf (above)
+% DISCLAIMER: DOS did NOT write this, original code from M. Donelan & W. Drennan circa 1995
+%.................................................................................
+%
+function w = blackhar(n)
+    %
+    %  BLACKHAR(N) returns the N-point Blackman-Harris window as a column vector
+    %  K.Kahma 1989-07-20
+
+    m = (0:n-1)' * ( 2*pi/(n-1) ) ;
+
+    w = (.35875 - .48829*cos(m) + .14128*cos(2*m) - 0.01168*cos(3*m) ) ;
 end
 %.................................................................................
 % below is an unaltered copy/paste of logfit.m
