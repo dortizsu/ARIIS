@@ -773,8 +773,8 @@ function S = spectf(varargin)
            Pxx(m) = sum(abs(Xx(a:maxb)).^2)*C*Nfa/c;
            f(m) = df*(a+maxb-2)/2;
         end
-	    S = [f/2/pi;2*pi*Pxx]';
 	end
+	S = [f/2/pi;2*pi*Pxx]';
 	%
 	% cross spectrum if necessary
 	if exist('y','var')
