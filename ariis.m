@@ -611,7 +611,7 @@ function [sf,stdsf]=logSmooth(f,varargin)
 	   k = l1:l2;
 	   sf(n+a,:) = mean(f(k,:),1);
 	   stdsf(n+a,:) =  std(f(k,:),1);
-	   stdsf(n+a,:) = sem(stdsf(n+a,:),'flags',length(k));
+	   stdsf(n+a,:) = stdsf(n+a,:)/sqrt(length(k));
 	   if l1==l1p && l2==l2p 
 		   np=[np;n+a];
 	   end
@@ -622,73 +622,6 @@ function [sf,stdsf]=logSmooth(f,varargin)
 	sf(np,:)=[];
 	stdsf(np,:) = [];
 end
-% 
-function out = sem(varargin)
-    % 1) out = sem(X)
-    % 2) out = sem(X,n)
-    % 3) out = sem(s,flag)
-    % 4) out = sem(s,flag,n)
-    %
-    % Calculate the standard error of the mean
-    % S.E.M. = s/sqrt(n)
-    % s = std(X)
-    % 95% CI = 2 x s/sqrt(n)
-    %
-    % 1 --> you want the SEM of X and the sample size you normalized by is length(X) or size(X,2)
-    % 2 --> you want vector (or array) X normalized by given values in n
-    %       ** Assumes size of n matches number of columns of X
-    % 3 --> if you feed in a "flag" (any string) then sem() assumes you are feeding in standard deviations
-    % 4 --> normalize s by given "n" values
-    %
-    % author: D. G. Ortiz-Suslow
-    % last revised: 07/21/16
-    % disclaimer: this is provided as is with no guarantee of functionality.
-    %
-    %
-    if nargin == 1
-        X = varargin{1};
-        if size(X,2) > 1
-            out = nanstd(X)/sqrt(size(X,2));
-        else
-            out = nanstd(X)/sqrt(length(X));
-        end
-    elseif nargin == 2
-        if ~ischar(varargin{2})
-            X = varargin{1}; n = varargin{2};
-            if size(X,2) > 1
-                if numel(n)~=size(X,2)
-                    error('Number of columns of X must match number of elements of n')
-                end
-                out = nanstd(X)./sqrt(n);
-            elseif size(X,2) == 1
-                if numel(n)~=size(X,2)
-                    error('Number of columns of X must match number of elements of n')
-                end
-                out = nanstd(X)./sqrt(n);
-            else
-                disp('you shouldnt see this')
-            end
-        elseif ischar(varargin{2})
-            s = varargin{1};
-            if size(s,2) > 1
-                out = s./sqrt(size(s,2));
-            else
-                out = s./sqrt(length(s));
-            end
-        end
-    elseif nargin == 3
-        s = varargin{1}; n = varargin{3};
-        if numel(n) == 1
-            out = s/sqrt(n);
-        elseif numel(n) == numel(s)
-            out = s./sqrt(n);
-        else
-            error('Dimension of "s" and "n" dont match: there must be at least one standard deviation estimate per sample size!')
-        end     
-    else
-        error('Too many inputs...')
-    end    
-end	
 %
 %.................................................................................
 % DISCLAIMER: DOS did NOT write this, original code from M. Donelan & W. Drennan circa 1995
