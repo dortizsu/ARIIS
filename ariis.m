@@ -567,7 +567,7 @@ function [sf,stdsf]=logSmooth(f,varargin)
 	%
 	% Inputs:
 	% f --> column vector needing smoothing. If f is array, operates on columns.
-	% a (optional) --> control width of smoothing windows, increasing "a" decreases smoothness (default = 4)
+	% a (optional) --> number of data points per decade, approximately N = 3*a (approximately). default a = 4.
 	%
 	% Outputs:
 	% sf --> smoothed array.

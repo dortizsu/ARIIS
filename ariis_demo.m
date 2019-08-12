@@ -26,7 +26,7 @@ if str2num(answ) == 0
 	%...............................................................
 	%..Below is a brief demo of the ARIIS output relative to input time series
 	%..initialize power spectrum call
-	Nfa = 1 % don't do any frequency averaging
+	Nfa = 1; % don't do any frequency averaging
 	Cuw = spectf(u,w,dt,Nfa); % see below for spectf.m
 	Cvw = spectf(v,w,dt,Nfa);
 	%..ARIIS processes using the nondimensional spectrum (see Kaimal et al. 1972 or Miyake et al. 1970)
@@ -305,7 +305,7 @@ function [sf,stdsf]=logSmooth(f,varargin)
 	%
 	% Inputs:
 	% f --> column vector needing smoothing. If f is array, operates on columns.
-	% a (optional) --> control width of smoothing windows, increasing "a" decreases smoothness (default = 4)
+	% a (optional) --> number of data points per decade, approximately N = 3*a (approximately). Default a = 4.
 	%
 	% Outputs:
 	% sf --> smoothed array.
