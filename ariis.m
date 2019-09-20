@@ -1,7 +1,7 @@
 function A = ariis(m,inputs,constants)
 	% A = ariis(m,inputs,constants)
 	%
-	% version: 2.2, 7/2/2019
+	% version: 3, 09/20/19
 	%
 	% ... preamble
 	% Algorithm for Robustly Identifying the Inertial Subrange (ARIIS)
@@ -13,6 +13,11 @@ function A = ariis(m,inputs,constants)
 	% (1) Finds the inertial subrange bandwidth in frequency space. (2) determines the 
 	% power law for each flow component over the identified subrange.
 	%
+	% The regression is performed assumed the turbulence spectrum, E, has this form --> E ~ A*f^m,
+	% where "m" is a free parameter with an expected value -5/3. For the temperature and concentration
+	% spectra we will assume that the kinetic inertial subrange corresponds (in bandwidth) to the inertial-
+	% convective and inertial-diffusive subranges.
+	%
 	% Arguments:
 	% m --> mode of operation, 0 if giving velocities, 1 if giving spectra.
 	% inputs --> 
@@ -20,13 +25,15 @@ function A = ariis(m,inputs,constants)
 	% inputs.u = instantaneous stream-wise velocity [m/s]
 	% inputs.v = instantaneous cross-stream velocity [m/s]
 	% inputs.w = instantaneous vertial velocity [m/s]
+	% inputs.T = instantaneous temperature [K]
+	% inputs.C = instantaneous concentration
 	% constants.Uadv = mean, advection velocity [m/s], !!required!!
 	% constants.z = height of measurement in surface layer [m], !!required!!
 	% constants.dt = sampling interval [s], !!required!!
 	% constants.smoothing = spectral smoothing yes (1) or no (0), optional (default = 1)
 	% constants.nfa = level of smoothing, optional (default = 8)
 	% constants.fcutoff = high-frequency cut-off for spectra, optional (default = Nyquist)
-	% constants.Suwratio = Cut-off for isotropy convergence, optional (default = 4/3)
+	% constants.Rratio = Cut-off for isotropy convergence, optional (default = 4/3)
 	% constants.Rfcutoff = low frequency limit for inertial subrange, optional (default = U/z)
 	% constants.a = fraction of identified inner bandwidth to keep, optional (default 0.9)
 	% constants.Dthresh = Cook's Distance threshhold numerator, option (default 4)
@@ -37,6 +44,8 @@ function A = ariis(m,inputs,constants)
 	% inputs.Suu = stream-wise velocity autovariance spectrum [(m^2/s^2)/Hz]
 	% inputs.Svv = cross-stream velocity autovariance spectrum [(m^2/s^2)/Hz]
 	% inputs.Sww = vertical velocity autovariance spectrum [(m^2/s^2)/Hz]
+	% inputs.Stt = temperature autovariance spectrum [K^2/Hz]
+	% inputs.Scc = concentration autovariance spectrum [units^2/Hz]
 	% constants.ust = friction velocity [m/s], !!required!!
 	% constants.varw = vertical velocity variance [m^2/s^2], !!required!!
 	% (the rest are the same as mode 0)
@@ -51,15 +60,21 @@ function A = ariis(m,inputs,constants)
 	% 7 --> u-w Isotropy coefficient, only from f-bins used in fitting
 	% 8 --> u-v Isotropy coefficient
 	% 9 --> u-v Isotropy coefficient, only from f-bins used in fitting
-	% 10--> power (p) of Suu ~ A*f^{p}
+	% 10--> power (m) of Suu ~ A*f^{m}
 	% 11--> linear coefficient of determination from fit (i.e Pearson's correlation)
-	% 12--> delta for p, as in p +/- delta spans 95% confidence interval
-	% 13--> power (p) of Svv ~ A*f^{p}
+	% 12--> delta for m, as in p +/- delta spans 95% confidence interval
+	% 13--> power (m) of Svv ~ A*f^{m}
 	% 14--> linear coefficient of determination from fit (i.e Pearson's correlation)
-	% 15--> delta for p, as in p +/- delta spans 95% confidence interval
-	% 16--> power (p) of Sww ~ A*f^{p}
+	% 15--> delta for m, as in m +/- delta spans 95% confidence interval
+	% 16--> power (m) of Sww ~ A*f^{m}
 	% 17--> linear coefficient of determination from fit (i.e Pearson's correlation)
-	% 18--> delta for p, as in p +/- delta spans 95% confidence interval
+	% 18--> delta for m, as in m +/- delta spans 95% confidence interval
+	% 19--> power (m) of Stt ~ A*f^{m}
+	% 20--> linear coefficient of determination from fit (i.e Pearson's correlation)
+	% 21--> delta for m, as in m +/- delta spans 95% confidence interval
+	% 22--> power (m) of Scc ~ A*f^{m}
+	% 23--> linear coefficient of determination from fit (i.e Pearson's correlation)
+	% 24--> delta for m, as in m +/- delta spans 95% confidence interval
 	%
 	flags = [];
 	% References:
@@ -79,6 +94,7 @@ function A = ariis(m,inputs,constants)
 	% v2 --> changed to fitting non-scaled spectra (expected p = -5/3) and added 95% confidence bounds for p
     % v2.1 --> include number of frequency bins in subrange as output
 	% v2.2 --> fixed bug in 95% confidence bound calculation, requires modifying local copy of rlogfit; adjust updated output, to only give delta (not full error bounds) and to NOT give amplitude
+	% v3 --> added temperature and concentration input capability.
 	%..................................................................................
 	%...Prepare ARIIS..................................................................
 	%..................................................................................
@@ -87,7 +103,7 @@ function A = ariis(m,inputs,constants)
 		'smoothing',...		
 		'nfa',...		
 		'fcutoff',...
-		'Suwratio',...
+		'Rratio',...
 		'Rfcutoff',...
 		'a',...
 		'Dthresh'};
@@ -101,7 +117,7 @@ function A = ariis(m,inputs,constants)
 		'4'};
 	Ndefaults = length(defaulted_fields);
 	fittype ='loglog';
-	spectrafits = {'Fuu' 'Fvv' 'Fww'};
+	spectrafits = {'Fuu' 'Fvv' 'Fww' 'Ftt' 'Fcc'};
 	%..ARIIS flags set to 0
 	no_isotropic_convergence = 0;
 	subrange_too_short = 0;
@@ -115,6 +131,8 @@ function A = ariis(m,inputs,constants)
 		u = inputs.u;
 		v = inputs.v;
 		w = inputs.w;
+		t = inputs.T;
+		c = inputs.C;
 		%..get constants needed for ARIIS, most have default values
 		%..non-defaulted values
 		Uadv = constants.Uadv;
@@ -122,7 +140,7 @@ function A = ariis(m,inputs,constants)
 		dt = constants.dt;
 		%..values with ARIIS defaults
 		for ii = 1:Ndefaults
-			if isfield('constants',['constants.' defaulted_fields{ii}])
+			if isfield(constants,defaulted_fields{ii})
 				evalc([defaulted_fields{ii} ' = constants.' defaulted_fields{ii}]);
             else
 				evalc([defaulted_fields{ii} ' = ' defaulted_vals{ii}]);
@@ -139,34 +157,41 @@ function A = ariis(m,inputs,constants)
 		%..calculate autovariance spectra
 		Cuw = spectf(u,w,dt,1,1);
 		Cuv = spectf(u,v,dt,1,1);
+		Ctc = spectf(t,c,dt,1,1);
 		n = Cuw(:,1);
 		Suu = Cuw(:,2);
 		Sww = Cuw(:,3);
 		Svv = Cuv(:,3);
+		Stt = Ctc(:,2);
+		Scc = Ctc(:,3);
 		%..if needed, can define a high frequency cut-off
 		Suu(n>fcutoff) = [];
 		Sww(n>fcutoff) = [];
 		Svv(n>fcutoff) = [];
+		Stt(n>fcutoff) = [];
+		Scc(n>fcutoff) = [];
 		n(n>fcutoff) = [];
 		%..if needed, can smooth spectra using a log-uniform bin mean averager
 		if true(smoothing)
 			% smooth
-			[smoothed,~] = logSmooth([n Suu Svv Sww],nfa);
+			[smoothed,~] = logSmooth([n Suu Svv Sww Stt Scc],nfa);
 			n = smoothed(:,1);
 			Suu = smoothed(:,2);
 			Svv = smoothed(:,3);
 			Sww = smoothed(:,4);
+			Stt = smoothed(:,5);
+			Scc = smoothed(:,6);
         end
 		%..ARIIS guts below................................................................
 		%..................................................................................
 		%...Step 2: Isotropic Convergence Sub-Routine......................................
 		%..................................................................................
-		R = Suu./Sww;
+		R = Suu./Svv; % original to version 1-2 R = Suu/Sww, this is how it was defined in Ortiz-Suslow et al. 2019 JTECH & Ortiz-Suslow et al. 2019 GRL
 		iR = 1;
 		ix = 0;
 		%..find low frequency limit of isotropic subrange
 		while ix < 1 && iR <= length(R)
-			ix = R(iR) < Suwratio;
+			ix = R(iR) < Rratio;
 			if ix == 1 && n(iR) <= Rfcutoff
 				ix = 0;
             end
@@ -174,7 +199,7 @@ function A = ariis(m,inputs,constants)
         end
 		%..find high-frequency limit of isotropic subrange
 		if iR < length(R)
-			ix = find(R(iR:end) < Suwratio,1,'last');
+			ix = find(R(iR:end) < Rratio,1,'last');
 			if isempty(ix)
 				iR(2) = iR;
 			else
@@ -212,6 +237,8 @@ function A = ariis(m,inputs,constants)
 			Fuu = Suu(IX); %Fuu = n(IX).*Suu(IX)/ust2;
 			Fvv = Svv(IX); %n(IX).*Svv(IX)/varw;
 			Fww = Sww(IX); %n(IX).*Sww(IX)/varw;
+			Ftt = Stt(IX);
+			Fcc = Scc(IX);
 			%..robust iterative fitting
 			for ii = 1:length(spectrafits)
 				evalc(['[robfit(' num2str(ii) '),rawfit(' num2str(ii) ')]' '= rlogfit(f,' spectrafits{ii} ',fittype,Dthresh)']);
@@ -242,7 +269,13 @@ function A = ariis(m,inputs,constants)
 				range(robfit(2).ci(:,2))/2,...%...15
 				robfit(3).coeffs(2),...%..........16
 				robfit(3).r2,...%.................17
-				range(robfit(3).ci(:,2))/2];%.....18
+				range(robfit(3).ci(:,2))/2,...%...18
+				robfit(4).coeffs(2),...%..........19
+				robfit(4).r2,...%.................20
+				range(robfit(4).ci(:,2))/2,...%...21
+				robfit(5).coeffs(2),...%..........22
+				robfit(5).r2,...%.................23
+				range(robfit(5).ci(:,2))/2];%.....24
 			end
 		end
 	elseif m == 1
@@ -254,6 +287,8 @@ function A = ariis(m,inputs,constants)
 		Suu = inputs.Suu;
 		Svv = inputs.Svv;
 		Sww = inputs.Sww;
+		Stt = inputs.Stt;
+		Scc = inputs.Scc;
 		%..get constants needed to ARIIS, most have default values
 		%..non-defaulted values
 		ust = constants.ust;
@@ -279,12 +314,12 @@ function A = ariis(m,inputs,constants)
 		%..................................................................................
 		%...Step 2: Isotropic Convergence Sub-Routine......................................
 		%..................................................................................
-		R = Suu./Sww;
+		R = Suu./Svv; % original to version 1-2 R = Suu/Sww, this is how it was defined in Ortiz-Suslow et al. 2019 JTECH & Ortiz-Suslow et al. 2019 GRL
 		iR = 1;
 		ix = 0;
 		%..find low frequency limit of isotropic subrange
 		while ix < 1 && iR <= length(R)
-			ix = R(iR) < Suwratio;
+			ix = R(iR) < Rratio;
 			if ix == 1 && n(iR) <= Rfcutoff
 				ix = 0;
             end
@@ -292,7 +327,7 @@ function A = ariis(m,inputs,constants)
         end
 		%..find high-frequency limit of isotropic subrange
 		if iR < length(R)
-			ix = find(R(iR:end) < Suwratio,1,'last');
+			ix = find(R(iR:end) < Rratio,1,'last');
 			if isempty(ix)
 				iR(2) = iR;
 			else
@@ -330,6 +365,8 @@ function A = ariis(m,inputs,constants)
 			Fuu = Suu(IX); %Fuu = n(IX).*Suu(IX)/ust2;
 			Fvv = Svv(IX); %n(IX).*Svv(IX)/varw;
 			Fww = Sww(IX); %n(IX).*Sww(IX)/varw;
+			Ftt = Stt(IX);
+			Fcc = Scc(IX);
 			%..robust iterative fitting
 			for ii = 1:length(spectrafits)
 				evalc(['[robfit(' num2str(ii) '),rawfit(' num2str(ii) ')]' '= rlogfit(f,' spectrafits{ii} ',fittype,Dthresh)']);
@@ -360,7 +397,13 @@ function A = ariis(m,inputs,constants)
 				range(robfit(2).ci(:,2))/2,...%...15
 				robfit(3).coeffs(2),...%..........16
 				robfit(3).r2,...%.................17
-				range(robfit(3).ci(:,2))/2];%.....18
+				range(robfit(3).ci(:,2))/2,...%...18
+				robfit(4).coeffs(2),...%..........19
+				robfit(4).r2,...%.................20
+				range(robfit(4).ci(:,2))/2,...%...21
+				robfit(5).coeffs(2),...%..........22
+				robfit(5).r2,...%.................23
+				range(robfit(5).ci(:,2))/2];%.....24
 			end
 		end
 	else
