@@ -9,17 +9,19 @@ clear all; clf; close all
 % load test data
 load('./ariis_test.mat')
 % get sampling interval in seconds
-dt = mean(diff(t))*(3600*24);
+dt = mean(diff(tn))*(3600*24);
 answ = input('Mode for ARIIS, time series (0) or spectral (1)? ','s');
 if str2num(answ) == 0
 	% build ARIIS input structures
 	inputs.u = u;
 	inputs.v = v;
 	inputs.w = w;
+	inputs.T = T + 273.15;
+	inputs.C = T; % no concentration data in the example.
 	constants.Uadv = Uadv;
 	constants.z = zlevel;
 	constants.dt = dt;
-	constants.fcutoff = 16;
+	constants.fcutoff = 5;
 	m = str2num(answ);
 	% call ARIIS
 	A = ariis(m,inputs,constants);
@@ -44,7 +46,7 @@ if str2num(answ) == 0
 	% plotting routine
 	figure(1)
 	ax1 = subplot(2,1,1); hold(ax1,'on')
-	hp = plot(t,[u v w],'-','LineWidth',2);
+	hp = plot(tn,[u v w],'-','LineWidth',2);
 	set(ax1,'Box','on','FontSize',20,'FontName','Times New Roman','FontAngle','italic')
 	datetick('x',15,'keepticks','keeplimits')
 	xlabel('\sl{t}','FontSize',25,'FontName','Times New Roman')
@@ -94,15 +96,19 @@ else
 	fcutoff = 16; % only accept data below Nyquist, here we'll be extra conservative
 	Cuw = spectf(u,w,dt,Nfa); % see below for spectf.m
 	Cvw = spectf(v,w,dt,Nfa);
+	Ctt = spectf(T + 273.15,dt,Nfa);
 	Cuw(Cuw(:,1)>fcutoff,:) = [];
 	Cvw(Cvw(:,1)>fcutoff,:) = [];
+	Ctt(Ctt(:,1)>fcutoff,:) = [];
 	% smooth
-	[smoothed,~] = logSmooth([Cuw(:,1) Cuw(:,2) Cvw(:,2) Cuw(:,3)],8);
+	[smoothed,~] = logSmooth([Cuw(:,1) Cuw(:,2) Cvw(:,2) Cuw(:,3) Ctt(:,2)],8);
 	% build ARIIS input structures
 	inputs.n = smoothed(:,1);
 	inputs.Suu = smoothed(:,2);
 	inputs.Svv = smoothed(:,3);
 	inputs.Sww = smoothed(:,4);
+	inputs.Stt = smoothed(:,5);
+	inputs.Scc = smoothed(:,5); % no concentration data in the example.
 	constants.ust = ust;
 	constants.varw = varw;
 	constants.Uadv = Uadv;
