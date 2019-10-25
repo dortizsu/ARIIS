@@ -21,4 +21,5 @@ Contents:
 [4]ariis_license
 
 Caveats:
-ARIIS only works with velocity data. Scalar inputs is a planned update.
+* ARIIS can handle temperature and concentration (e.g. water vapor) input, assuming inertial subrange in the kinetic energy has the same bandwidth in the inertial-convective and inertial-scalar subranges (Tennekes & Lumley 1972). 
+* If using sonic anemometry, can handle applying path-averaging correction for CSAT-type and Solent-type sonic anemometer heads. If using open-path gas analyzers, user must input the path length and it is assumed that path is (approx.) perpindicular to the mean wind vector.
