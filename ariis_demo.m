@@ -19,9 +19,13 @@ if str2num(answ) == 0
 	inputs.T = T + 273.15;
 	inputs.C = T; % no concentration data in the example.
 	constants.Uadv = Uadv;
+	constants.WD = 0; % this is just for example purposes.
 	constants.z = zlevel;
 	constants.dt = dt;
+	constants.htype = 1; % example uses IRGASON w/ CSAT-type sonic anemometer
+	constants.dpl = 0.1537; % optical path-length of IRGASON gas analyzer
 	constants.fcutoff = 5;
+	constants.smoothing = 1;
 	m = str2num(answ);
 	% call ARIIS
 	A = ariis(m,inputs,constants);
@@ -93,15 +97,11 @@ else
 	ust = sqrt(sqrt(ii^2 + jj^2));
 	%..initialize power spectrum call
 	Nfa = 1; % do some frequency averaging (smoothing between modes 0 and 1 are DIFFERENT)
-	fcutoff = 16; % only accept data below Nyquist, here we'll be extra conservative
 	Cuw = spectf(u,w,dt,Nfa); % see below for spectf.m
 	Cvw = spectf(v,w,dt,Nfa);
 	Ctt = spectf(T + 273.15,dt,Nfa);
-	Cuw(Cuw(:,1)>fcutoff,:) = [];
-	Cvw(Cvw(:,1)>fcutoff,:) = [];
-	Ctt(Ctt(:,1)>fcutoff,:) = [];
 	% smooth
-	[smoothed,~] = logSmooth([Cuw(:,1) Cuw(:,2) Cvw(:,2) Cuw(:,3) Ctt(:,2)],8);
+	[smoothed,~] = logSmooth([Cuw(:,1) Cuw(:,2) Cvw(:,2) Cuw(:,3) Ctt(:,2)],12);
 	% build ARIIS input structures
 	inputs.n = smoothed(:,1);
 	inputs.Suu = smoothed(:,2);
@@ -112,8 +112,12 @@ else
 	constants.ust = ust;
 	constants.varw = varw;
 	constants.Uadv = Uadv;
+	constants.WD = 0; % this is just for example purposes.
 	constants.z = zlevel;
 	constants.dt = dt;
+	constants.htype = 1; % example uses IRGASON w/ CSAT-type sonic anemometer
+	constants.dpl = 0.1537; % optical path-length of IRGASON gas analyzer
+	constants.fcutoff = 5; % don't consider any frequencies above this limit
 	m = str2num(answ);
 	% call ARIIS
 	A = ariis(m,inputs,constants);
