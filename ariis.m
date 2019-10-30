@@ -66,9 +66,9 @@ function A = ariis(m,inputs,constants)
 	% 4 --> [Hz] high-frequency limit of inertial subrange
 	% 5 --> [rad/m] high-wavenumber limit of inertial subrange
 	% 6 --> u-w Isotropy coefficient
-	% 7 --> u-w Isotropy coefficient, only from f-bins used in fitting
+	% 7 --> u-w Isotropy coefficient, only from f-bins used in fitting (and if applicaple, this coefficient will factor in the path-averaging corrections)
 	% 8 --> u-v Isotropy coefficient
-	% 9 --> u-v Isotropy coefficient, only from f-bins used in fitting
+	% 9 --> u-v Isotropy coefficient, only from f-bins used in fitting (and if applicaple, this coefficient will factor in the path-averaging corrections)
 	% 10--> power (m) of Suu ~ A*f^{m}
 	% 11--> linear coefficient of determination from fit (i.e Pearson's correlation)
 	% 12--> delta for m, as in p +/- delta spans 95% confidence interval
@@ -106,6 +106,7 @@ function A = ariis(m,inputs,constants)
 	% v2.2 --> fixed bug in 95% confidence bound calculation, requires modifying local copy of rlogfit; adjust updated output, to only give delta (not full error bounds) and to NOT give amplitude
 	% v3 --> added temperature and concentration input capability.
 	% v3.1 --> added capability of applying path-averaging correction
+	% v3.2 --> Isotropy coefficient re-calculated w/ fit f-bins, now accounts for path-averaging correction (if needed)
 	%
 	%..................................................................................
 	%...Prepare ARIIS..................................................................
@@ -246,10 +247,8 @@ function A = ariis(m,inputs,constants)
 			return
         else
 			%..Isotropic coefficient, Jimenez et al. 1993
-			k = 2*pi*n(IX)/Uadv;
-			dEuudk = rate(Suu(IX))./rate(k);
-			Iuw = (Suu(IX) - k.*dEuudk)./(2*Sww(IX));
-			Iuv = (Suu(IX) - k.*dEuudk)./(2*Svv(IX));
+			[I,k] = isotropy(n(IX),Suu(IX),Svv(IX),Sww(IX),Uadv);
+			%
 			%..Iterative fitting method for finding power law over Sxx(IX)
 			%..scale spectra in surface layer coordinates
 			f = n(IX); %n(IX)*nscale;
@@ -275,7 +274,9 @@ function A = ariis(m,inputs,constants)
 					flags(:,ii+2) = 1;
 				end
 			end
-			I = [median(Iuw) median(Iuw(robfit(1).indx)) median(Iuv) median(Iuv(robfit(1).indx))];
+			% re-calculate I using fitted frequency bins (and, if applicable, the path-average-corrected spectral amplitudes)
+			[If,~] = isotropy(f(robfit(1).indx),Fuu(robfit(1).indx),Fvv(robfit(1).indx),Fww(robfit(1).indx),Uadv);
+			I = [median(I(:,1)) median(If(:,1)) median(I(:,2)) median(If(:,2))];
 			%.................................................................................
 			%...Step 4: Output................................................................
 			%.................................................................................
@@ -387,10 +388,8 @@ function A = ariis(m,inputs,constants)
 			return
         else
 			%..Isotropic coefficient, Jimenez et al. 1993
-			k = 2*pi*n(IX)/Uadv;
-			dEuudk = rate(Suu(IX))./rate(k);
-			Iuw = (Suu(IX) - k.*dEuudk)./(2*Sww(IX));
-			Iuv = (Suu(IX) - k.*dEuudk)./(2*Svv(IX));
+			[I,k] = isotropy(n(IX),Suu(IX),Svv(IX),Sww(IX),Uadv);
+			%
 			%..Iterative fitting method for finding power law over Sxx(IX)
 			%..(old)scale spectra in surface layer coordinates
 			f = n(IX); %n(IX)*nscale;
@@ -417,7 +416,9 @@ function A = ariis(m,inputs,constants)
 					flags(:,ii+2) = 1;
 				end
 			end
-			I = [median(Iuw) median(Iuw(robfit(1).indx)) median(Iuv) median(Iuv(robfit(1).indx))];
+			% re-calculate I using fitted frequency bins (and, if applicable, the path-average-corrected spectral amplitudes)
+			[If,~] = isotropy(f(robfit(1).indx),Fuu(robfit(1).indx),Fvv(robfit(1).indx),Fww(robfit(1).indx),Uadv);
+			I = [median(I(:,1)) median(If(:,1)) median(I(:,2)) median(If(:,2))];
 			%.................................................................................
 			%...Step 4: Output................................................................
 			%.................................................................................
@@ -491,6 +492,14 @@ function rated = rate(x,flag)
 	end
 end
 %
+% 
+function [I,k] = isotropy(n,Suu,Svv,Sww,U)
+	k = 2*pi*n/U;
+	dEuudk = rate(Suu)./rate(k);
+	I(:,1) = (Suu - k.*dEuudk)./(2*Sww);
+	I(:,2) = (Suu - k.*dEuudk)./(2*Svv);
+end
+% 
 function [rfitted,raw] = rlogfit(x,y,varargin)
 	% Iterative, robust linear least-squares regression.
 	% Method uses a Cook's Distance algorithm to flag/remove suspicious and influential points from final regression model.
