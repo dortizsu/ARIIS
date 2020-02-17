@@ -730,7 +730,7 @@ function [ruu,rvv,rww,rtt] = m2r(ok,ouu,ovv,oww,ott,WD,htype)
 	% azimuthal angles of attack
 	% H&O2006 report 0, 10, 20, 30 and state that the pattern repeats through 360 degrees
 	th = 0:10:30;
-	wd = -180:10:180;
+	wd = -180:10:170;
 	if htype == 1
 		p = 0.11;
 		H1 = [...
