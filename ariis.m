@@ -42,6 +42,7 @@ function A = ariis(m,inputs,constants)
 	% constants.smoothing = spectral smoothing yes (1) or no (0), optional (default = 1)
 	% constants.nfa = level of smoothing, optional (default = 8)
 	% constants.fcutoff = high-frequency cut-off for spectra, optional (default = Nyquist)
+	% constants.window_type = windowing method for FFT, either 0 for blackman-harris or 1 for hamming
 	% constants.Rratio = Cut-off for isotropy convergence, optional (default = 4/3)
 	% constants.Rfcutoff = low frequency limit for inertial subrange, optional (default = U/z)
 	% constants.a = fraction of identified inner bandwidth to keep, optional (default 0.9)
@@ -116,6 +117,7 @@ function A = ariis(m,inputs,constants)
 		'smoothing',...		
 		'nfa',...		
 		'fcutoff',...
+		'window_type',...
 		'Rratio',...
 		'Rfcutoff',...
 		'a',...
@@ -125,6 +127,7 @@ function A = ariis(m,inputs,constants)
 		'1',...	
 		'12',...	
 		'(1/dt)/2',...
+		'0',...
 		'4/3',...
 		'Uadv/z',... % largest wall-bounded eddy that can be resolved has frequency n = Uadv/z
 		'0.9',...
@@ -173,15 +176,20 @@ function A = ariis(m,inputs,constants)
 		varw = var(w);
 		nscale = z/Uadv;
 		%..calculate autovariance spectra
-		Cuw = spectf(u,w,dt,1,1);
-		Cuv = spectf(u,v,dt,1,1);
-		Ctc = spectf(t,c,dt,1,1);
-		n = Cuw(:,1);
-		Suu = Cuw(:,2);
-		Sww = Cuw(:,3);
-		Svv = Cuv(:,3);
-		Stt = Ctc(:,2);
-		Scc = Ctc(:,3);
+		if true(window_type)
+			windowing = 'hamming';
+		else
+			windowing = 'blackhar';
+		end
+		Cuw = powspec(u,w,dt,'numperdec',0,'window',windowing);
+		Cuv = powspec(u,v,dt,'numperdec',0,'window',windowing);
+		Ctc = powspec(t,c,dt,'numperdec',0,'window',windowing);
+		n = Cuw.f;
+		Suu = Cuw.Pxx;
+		Sww = Cuw.Pyy;
+		Svv = Cuv.Pyy;
+		Stt = Ctc.Pxx;
+		Scc = Ctc.Pyy;
 		%..if needed, can define a high frequency cut-off
 		Suu(n>fcutoff) = [];
 		Sww(n>fcutoff) = [];
@@ -655,19 +663,20 @@ end
 %
 function [sf,stdsf]=logSmooth(f,varargin)
 	%
-	% [sf,stdsf]=logSmooth(f,a)
-	% [sf,stdsf]=logSmooth(f)
+	%  [sf,stdsf]=logSmooth(f:array,a)
 	%
-	% Log-uniform smoothing of f using a bin-averaging technique.
-	%
+	% Log-uniform smoothing of f using bin-averaging technique.
 	% Inputs:
 	% f --> column vector needing smoothing. If f is array, operates on columns.
-	% a (optional) --> number of data points per decade, approximately N = 3*a (approximately). default a = 4.
+	% !! logSmooth assumes column vector or that inputs are to be operated over columns !!
+	% a (optional) --> smoothing factor. "a" is the slope of the frequency-dependent PDF of the number of samples per averaging bin used to calculate the smooth spectrum. a = 4 has twice as steep a slope as a = 8, therefore a = 4 smooths twice as fast as 8. Given the inverse proportionality of a to slope, a saturates in effectiveness at ~20-24. Therefore, values [2,24] is recommended. 
 	%
 	% Outputs:
-	% sf --> smoothed array.
+	% sf --> smoothed f (or array).
 	% stdsf --> standard error of the means over each bin, x1.96 gives 95% confidence interval.
-	% Contributor: John Kalogiros (2000) & DOS
+	%
+	% Original code: Ioannis Kalogiros (5/3/2000) in Matlab v5.3
+	% Including "a": D. Ortiz-Suslow (2018) Matlab v2018a/
 	%
 	if size(f,1) == 1
 		f = f(:);
@@ -839,6 +848,7 @@ function [ruu,rvv,rww,rtt] = m2r(ok,ouu,ovv,oww,ott,WD,htype)
 		0.0541 0.0546 0.0557 0.0559; 0.0321 0.0322 0.0327 0.0337;...
 		0.0196 0.0196 0.0196 0.0191; 0.0121 0.0121 0.0121 0.0122;...
 		0.00751 0.00752 0.00752 0.00747];
+        HT = repmat(HT,1,ra);
 	else
 		warning('Undefined head-type, will assign path length 11 cm')
 		p = 0.11;
@@ -905,132 +915,105 @@ function [ruu,rvv,rww,rtt] = m2r(ok,ouu,ovv,oww,ott,WD,htype)
 	rtt = ott./interp1(kp,HT(:,ith),ok*p,'linear','extrap');
 end
 %
-% .................................................................................
-% DISCLAIMER: DOS did NOT write this, original code from M. Donelan & W. Drennan circa 1995
-%.................................................................................
-%
-function S = spectf(varargin)
-	% S = SPECTf(x,dt)
-	% S = SPECTf(x,dt,Nfa)
-	% S = SPECTf(x,y,dt)
-	% S = SPECTf(x,y,dt,Nfa)
-	% S = SPECTF(x,y,dt,Nfa,a0)
-	% calculate power spectral density and cross-sepctrum if needed
-	% contributors: M. Donelan, W. Drennan, with modifications/cleaning from DOS
-	Nfa = 31;
-	a0 = 0;
-	Nargsin = numel(varargin);
-	x = varargin{1}; x = x(:)';
-	N  = numel(x);
-	window = blackhar(N)'; % window function
-	% window=hamming(N)';
+function S = powspec(varargin)
+	% S = powspec(x,dt)
+	% S = powspec(x,dt,options...)
+	% S = powspec(x,y,dt)
+	% S = powspec(x,y,dt,options...)
+	% 
+	% Calculate windowed power (variance) spectral density of a time series x (and y).
+	% Inputs:
+	% x --> an M x N array of time records for spectral decomposition. If N > 1, then powspec operates on columns.
+	% dt --> sampling interval in units seconds. 1/dt is sampling frequency.
+	% y --> an M x N array of time records for co-spectral analysis with x. If N == 1, co-spectra are calculated against columns of x. If N > 1, then each column of x AND y are used for co-spectral analysis.
+	% "window" --> windowing method for fft, input either "blackhar" or "hamming" for a blackman-harris or hamming window, respectively.
+	% "numperdec" --> number of samples per decade AFTER log-uniform smoothing. If NO SMOOTHING is desired, input, powspec(...,'numperdec',0,...)
+	% "firstbin" --> the first frequency bin to keep in the power spectrum, e.g. powspec(...,'firstbin',0,...), which means that matlab index #1 is the start point. Default is powspec(...,'firstbin',1,...)
 	%
-	% figure out what you gave us...
-	if Nargsin == 2
-		dt = varargin{2};
-	elseif Nargsin == 3
-		if numel(varargin{2}) == 1
-			dt = varargin{2};
-			Nfa = varargin{3};
-		else
-			y = varargin{2};
-			dt = varargin{3};
-		end
-	elseif Nargsin > 3
-		y = varargin{2}; y = y(:)';
-		dt = varargin{3};
-		Nfa = varargin{4};
-		if Nargsin > 4
-			a0 = varargin{5};
-		end
-	end
+	% Outputs:
 	%
-	% proceed to spectral calculations
-	%
-    Xx = fft(window.*detrend(x));
-	% number of points in FFT
-    Nfft = length(Xx);
-    maxb = floor(Nfft/2)+1;
-    Xx(maxb+1:Nfft) = [];
-    Xx(maxb) = Xx(maxb)/2;
-    C = dt/(Nfa*pi*norm(window)^2);    % Scaling coefficient
-    df = 2*pi/(dt*Nfft);
-	%
-	if Nfa == 1
-		f = [a0:maxb-1]*df;
-		Pxx = (abs(Xx(a0+1:maxb)).^2)*C;
+	%..initialize
+	a0 = 1;
+	x = varargin{1};
+	[Nx,Nc] = size(x);
+	window = blackhar(Nx);
+	%..find out what we have
+	n = 2;
+	if numel(varargin{n}) == 1
+		dt = varargin{n};
+        n = po(n);
 	else
-		if Nfa > 20 
-			% When Nfa is large enough this is as fast as vectorized
-			% averaging and it requires far less memory    
-	        m = 0;
-			a = a0+1;
-			b = a0+Nfa;
-	        while b <= maxb
-				m = m+1;
-				Pxx(m) = sum(abs(Xx(a:b)).^2)*C;
-				f(m) = df*((a+b-2)/2);
-				a = a + Nfa;
-				b = b + Nfa;
-			end
-		else
-			m = fix((maxb - a0)/Nfa);
-	        f = ((1:m)*Nfa + (a0 - 0.5 - Nfa/2))*df;
-	        b = a0 + m*Nfa;
-	        sx = zeros(Nfa,m);
-	        sx(:) = abs(Xx(a0+1:b)).^2;  
-	        Pxx=sum(sx)*C;
-		end
-        a = a0+1+m*Nfa;
-        if a <= maxb
-           m = m+1;
-           c = maxb+1-a; 
-           Pxx(m) = sum(abs(Xx(a:maxb)).^2)*C*Nfa/c;
-           f(m) = df*(a+maxb-2)/2;
-        end
+		y = varargin{n};
+		n = po(n);
+		dt = varargin{n};
+		n = po(n);
 	end
-	S = [f/2/pi;2*pi*Pxx]';
-	%
-	% cross spectrum if necessary
-	if exist('y','var')
- 	   Yy = fft(window.*detrend(y));
- 	   Yy(maxb) = Yy(maxb)/2;
- 	   Yy(maxb+1:Nfft) = [];
-	   if Nfa==1
-		   Pyy = (abs(Yy(a0+1:maxb)).^2)*C;
-		   Pxy = (conj(Xx(a0+1:maxb)).*Yy(a0+1:maxb))*C;
-	   else
-		   if Nfa > 20
-			   m=0;
-			   a=a0+1;
-			   b=a0+Nfa;
-			   while b <= maxb
-				   m = m+1;
-				   Pyy(m) = sum(abs(Yy(a:b)).^2)*C;
-				   Pxy(m) = sum(conj(Xx(a:b)).*Yy(a:b))*C;
-				   a = a + Nfa;
-				   b = b + Nfa;
-			   end
-		   else
-			   m = fix((maxb - a0)/Nfa);
-			   b = a0 + m*Nfa;
-			   sx = zeros(Nfa,m);
-			   sx(:) = abs(Yy(a0+1:b)).^2;  
-			   Pyy=(sum(sx)*C);
-			   sx(:) = conj(Xx(a0+1:b)).*Yy(a0+1:b);  
-			   Pxy=(sum(sx)*C);
-			   a = a0 + 1 + m*Nfa;
-		  end
-		  if a <= maxb
-		     m = m+1; 
-		     c = maxb+1-a; 
-		     Pyy(m) = sum(abs(Yy(a:maxb)).^2)*C*Nfa/c;
-		     Pxy(m) = sum(conj(Xx(a:maxb)).*Yy(a:maxb))*C*Nfa/c;
-		  end
+	for ii = n:2:numel(varargin)
+		if strcmp('window',varargin{ii})
+			evalc(['window = ' varargin{ii+1} '(Nx)']);
+		elseif strcmp('numperdec',varargin{ii})
+			Nfa = varargin{ii+1};
+		elseif strcmp('firstbin',varargin{ii})
+			a0 = varargin{ii+1};
+		else
+			warning('unknown options...')
 		end
- 	    phase = atan2d(-imag(Pxy),real(Pxy));
- 	    coh = abs(Pxy./sqrt(Pxx.*Pyy));
- 	    S = [S (2*pi*Pyy)' (2*pi*Pxy)' phase' coh'];
+	end
+	%..spectral calculations
+	for ii = 1:Nc
+		Xx = fft(window.*detrend(x(:,ii)));
+		Nfft = length(Xx);
+		maxb = floor(Nfft/2)+1;
+		Xx(maxb+1:Nfft) = [];
+		Xx(maxb) = Xx(maxb)/2;
+		% Scaling coefficient
+		C = dt/(pi*norm(window)^2);
+		% frequency bin width
+		df = 2*pi/(dt*Nfft);
+		% define frequency and Sxx
+		f = [a0:maxb-1]*df;
+		Sxx = (abs(Xx(a0+1:maxb)).^2)*C;
+		if exist('y','var')
+			if size(y,2) == Nc
+				Yy = fft(window.*detrend(y(:,ii)));
+			else
+				Yy = fft(window.*detrend(y));
+			end
+	  	   Yy(maxb) = Yy(maxb)/2;
+	  	   Yy(maxb+1:Nfft) = [];
+		   Syy = C*abs(Yy(a0+1:maxb)).^2;
+		   Sxy = C*conj(Xx(a0+1:maxb)).*Yy(a0+1:maxb);
+		   if Nfa ~= 0
+			   [dum,dumvar] = logSmooth([f' Sxx Syy Sxy],Nfa);
+			   S.f = dum(:,1)/2/pi;
+			   S.Pxx(:,ii) = 2*pi*dum(:,2);
+			   S.xs(:,ii) = 2*pi*dumvar(:,2);
+			   S.Pyy(:,ii) = 2*pi*dum(:,3);
+			   S.ys(:,ii) = 2*pi*dumvar(:,3);
+			   S.Pxy(:,ii) = 2*pi*dum(:,4);
+			   S.xys(:,ii) = 2*pi*dumvar(:,4);
+			   S.phs(:,ii) = atan2d(-imag(dum(:,end)),real(dum(:,end)));
+			   S.coh(:,ii) = (dum(:,end).^2)./(dum(:,2).*dum(:,3));
+		   else
+			   S.f = f(:)/2/pi;
+			   S.Pxx(:,ii) = 2*pi*Sxx;
+			   S.Pyy(:,ii) = 2*pi*Syy;
+			   S.Pxy(:,ii) = 2*pi*Sxy;
+			   S.phs(:,ii) = atan2d(-imag(Sxy),real(Sxy));
+			   S.coh(:,ii) = (Sxy.^2)./(Sxx.*Syy);
+		   end
+		else
+			% smoothing
+			if Nfa ~= 0
+				[dum,dumvar] = logSmooth([f' Sxx],Nfa);
+				S.f = dum(:,1)/2/pi;
+				S.Pxx(:,ii) = 2*pi*dum(:,2); 
+				S.xs(:,ii) = 2*pi*dumvar(:,2);
+			else
+ 			   S.f = f(:)/2/pi;
+ 			   S.Pxx(:,ii) = 2*pi*Sxx;
+			end
+		end
 	end
 end
 %
