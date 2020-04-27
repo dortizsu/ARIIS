@@ -108,6 +108,7 @@ function A = ariis(m,inputs,constants)
 	% v3 --> added temperature and concentration input capability.
 	% v3.1 --> added capability of applying path-averaging correction
 	% v3.2 --> Isotropy coefficient re-calculated w/ fit f-bins, now accounts for path-averaging correction (if needed)
+	% v3.3 --> Minor bug fixes based on A. W. Smith feedback (2020-04-27)
 	%
 	%..................................................................................
 	%...Prepare ARIIS..................................................................
