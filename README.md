@@ -21,4 +21,4 @@ Contents:
 [4]ariis_license
 
 Caveats:
-ARIIS only works with velocity data. Scalar inputs is a planned update.
+ARIIS was designed with environmental turbulence measurements in mind (noisy turbulence measurements from an active acoustic sensor). However, the methodology is fundamentally general and can be applied to any 3D velocity and/or turbulent scalar field. Check INPUTS & CONSTANTS structures carefully.

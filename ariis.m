@@ -22,25 +22,25 @@ function A = ariis(m,inputs,constants)
 	% m --> mode of operation, 0 if giving velocities, 1 if giving spectra.
 	% inputs --> 
 	% m = 0)
-	% inputs.u = instantaneous stream-wise velocity [m/s]
-	% inputs.v = instantaneous cross-stream velocity [m/s]
-	% inputs.w = instantaneous vertial velocity [m/s]
-	% inputs.T = instantaneous temperature [K]
-	% inputs.C = instantaneous concentration
+	% inputs.u = [m/s] instantaneous stream-wise velocity
+	% inputs.v = [m/s] instantaneous cross-stream velocity 
+	% inputs.w = [m/s]instantaneous vertial velocity
+	% inputs.T = [K] instantaneous temperature
+	% inputs.C = [units/m^3] instantaneous concentration
 	%
 	% !! REQUIRED CONSTANTS, NO DEFAULTS ASSIGNED !!
 	%
-	% constants.Uadv = mean, advection velocity [m/s]
-	% constants.z = height of measurement in surface layer [m]
-	% constants.WD = azimuthal angle of attack
-	% constants.dt = sampling interval [s]
+	% constants.Uadv = [m/s] mean, advection velocity, e.g. 
+	% constants.z = [m] height of measurement in surface layer 
+	% constants.WD = [degrees coming from] azimuthal angle of attack of Uadv, range (-180,180)
+	% constants.dt = [s] sampling interval
 	% constants.htype = if using sonic anemometers, htype = 1 (CSAT-type), 2 (Solent-Type), if 0 no correction
-	% constants.dpl = optical path length for C (IRGASON = 0.1537, LiCOR 7500 = 0.125)
+	% constants.dpl = [m] optical path length for C (IRGASON = 0.1537, LiCOR 7500 = 0.125)
 	%
 	% >> the constants below have ARIIS-default values,
 	%
-	% constants.smoothing = spectral smoothing yes (1) or no (0), optional (default = 1)
-	% constants.nfa = level of smoothing, optional (default = 8)
+	% constants.smoothing = spectral smooth mode: log-uniform smoothing (0, default), constants bins per decade (1), none (-1)
+	% constants.nfa = level of smoothing, optional (default = 10)
 	% constants.fcutoff = high-frequency cut-off for spectra, optional (default = Nyquist)
 	% constants.window_type = windowing method for FFT, either 0 for blackman-harris or 1 for hamming
 	% constants.Rratio = Cut-off for isotropy convergence, optional (default = 4/3)
@@ -66,10 +66,10 @@ function A = ariis(m,inputs,constants)
 	% 3 --> [rad/m] low-wavenumber limit of inertial subrange
 	% 4 --> [Hz] high-frequency limit of inertial subrange
 	% 5 --> [rad/m] high-wavenumber limit of inertial subrange
-	% 6 --> u-w Isotropy coefficient
-	% 7 --> u-w Isotropy coefficient, only from f-bins used in fitting (and if applicaple, this coefficient will factor in the path-averaging corrections)
-	% 8 --> u-v Isotropy coefficient
-	% 9 --> u-v Isotropy coefficient, only from f-bins used in fitting (and if applicaple, this coefficient will factor in the path-averaging corrections)
+	% 6 --> u-w Isotropy coefficient (median)
+	% 7 --> u-w Isotropy coefficient (median), only from f-bins used in fitting (and if applicaple, this coefficient will factor in the path-averaging corrections)
+	% 8 --> u-v Isotropy coefficient (median)
+	% 9 --> u-v Isotropy coefficient (median), only from f-bins used in fitting (and if applicaple, this coefficient will factor in the path-averaging corrections)
 	% 10--> power (m) of Suu ~ A*f^{m}
 	% 11--> linear coefficient of determination from fit (i.e Pearson's correlation)
 	% 12--> delta for m, as in p +/- delta spans 95% confidence interval
@@ -124,8 +124,8 @@ function A = ariis(m,inputs,constants)
 		'htype',...
 		'Dthresh'};
 	defaulted_vals = {...
-		'1',...	
-		'12',...	
+		'0',...	
+		'10',...	
 		'(1/dt)/2',...
 		'0',...
 		'4/3',...
@@ -181,9 +181,10 @@ function A = ariis(m,inputs,constants)
 		else
 			windowing = 'blackhar';
 		end
-		Cuw = powspec(u,w,dt,'numperdec',0,'window',windowing);
-		Cuv = powspec(u,v,dt,'numperdec',0,'window',windowing);
-		Ctc = powspec(t,c,dt,'numperdec',0,'window',windowing);
+		%..calculated autovariance (power) spectrum WITHOUT smoothing
+		Cuw = powspec(u,w,dt,'sbins',0,'window',windowing);
+		Cuv = powspec(u,v,dt,'sbins',0,'window',windowing);
+		Ctc = powspec(t,c,dt,'sbins',0,'window',windowing);
 		n = Cuw.f;
 		Suu = Cuw.Pxx;
 		Sww = Cuw.Pyy;
@@ -197,10 +198,9 @@ function A = ariis(m,inputs,constants)
 		Stt(n>fcutoff) = [];
 		Scc(n>fcutoff) = [];
 		n(n>fcutoff) = [];
-		%..if needed, can smooth spectra using a log-uniform bin mean averager
-		if true(smoothing)
-			% smooth
-			[smoothed,~] = logSmooth([n Suu Svv Sww Stt Scc],nfa);
+		%..if specified, smooth spectrum
+		if smoothing >= 0
+			[smoothed,~] = logSmooth([n Suu Svv Sww Stt Scc],nfa,smoothing);
 			n = smoothed(:,1);
 			Suu = smoothed(:,2);
 			Svv = smoothed(:,3);
@@ -277,13 +277,13 @@ function A = ariis(m,inputs,constants)
 			end
 			%..robust iterative fitting
 			for ii = 1:length(spectrafits)
-				evalc(['[robfit(' num2str(ii) '),rawfit(' num2str(ii) ')]' '= rlogfit(f,' spectrafits{ii} ',fittype,Dthresh)']);
-				if sum(robfit(ii).indx) < 3
+				evalc(['O(' num2str(ii) ') = robustfit(f,' spectrafits{ii} ')']);
+				if O(ii).r2 == 0
 					flags(:,ii+2) = 1;
 				end
 			end
 			% re-calculate I using fitted frequency bins (and, if applicable, the path-average-corrected spectral amplitudes)
-			[If,~] = isotropy(f(robfit(1).indx),Fuu(robfit(1).indx),Fvv(robfit(1).indx),Fww(robfit(1).indx),Uadv);
+			[If,~] = isotropy(f(O(1).indx),Fuu(O(1).indx),Fvv(O(1).indx),Fww(O(1).indx),Uadv);
 			I = [median(I(:,1)) median(If(:,1)) median(I(:,2)) median(If(:,2))];
 			%.................................................................................
 			%...Step 4: Output................................................................
@@ -299,21 +299,21 @@ function A = ariis(m,inputs,constants)
 				n(IX(end)),...%...................4
 				k(end),...%.......................5
 				I,...%............................6/7/8/9
-				robfit(1).coeffs(2),...%..........10
-				robfit(1).r2,...%.................11
-				range(robfit(1).ci(:,2))/2,...%...12
-				robfit(2).coeffs(2),...%..........13
-				robfit(2).r2,...%.................14
-				range(robfit(2).ci(:,2))/2,...%...15
-				robfit(3).coeffs(2),...%..........16
-				robfit(3).r2,...%.................17
-				range(robfit(3).ci(:,2))/2,...%...18
-				robfit(4).coeffs(2),...%..........19
-				robfit(4).r2,...%.................20
-				range(robfit(4).ci(:,2))/2,...%...21
-				robfit(5).coeffs(2),...%..........22
-				robfit(5).r2,...%.................23
-				range(robfit(5).ci(:,2))/2];%.....24
+				O(1).coeffs(2),...%...............10
+				O(1).r2,...%......................11
+				range(O(1).ci(:,2))/2,...%........12
+				O(2).coeffs(2),...%...............13
+				O(2).r2,...%......................14
+				range(O(2).ci(:,2))/2,...%........15
+				O(3).coeffs(2),...%...............16
+				O(3).r2,...%......................17
+				range(O(3).ci(:,2))/2,...%........18
+				O(4).coeffs(2),...%...............19
+				O(4).r2,...%......................20
+				range(O(4).ci(:,2))/2,...%........21
+				O(5).coeffs(2),...%...............22
+				O(5).r2,...%......................23
+				range(O(5).ci(:,2))/2];%..........24
 			end
 		end
 	elseif m == 1
@@ -419,13 +419,13 @@ function A = ariis(m,inputs,constants)
 			%
 			%..robust iterative fitting
 			for ii = 1:length(spectrafits)
-				evalc(['[robfit(' num2str(ii) '),rawfit(' num2str(ii) ')]' '= rlogfit(f,' spectrafits{ii} ',fittype,Dthresh)']);
-				if sum(robfit(ii).indx) < 3
+				evalc(['O(' num2str(ii) ') = robustfit(f,' spectrafits{ii} ')']);
+				if O(ii).r2 == 0
 					flags(:,ii+2) = 1;
 				end
 			end
 			% re-calculate I using fitted frequency bins (and, if applicable, the path-average-corrected spectral amplitudes)
-			[If,~] = isotropy(f(robfit(1).indx),Fuu(robfit(1).indx),Fvv(robfit(1).indx),Fww(robfit(1).indx),Uadv);
+			[If,~] = isotropy(f(O(1).indx),Fuu(O(1).indx),Fvv(O(1).indx),Fww(O(1).indx),Uadv);
 			I = [median(I(:,1)) median(If(:,1)) median(I(:,2)) median(If(:,2))];
 			%.................................................................................
 			%...Step 4: Output................................................................
@@ -441,21 +441,21 @@ function A = ariis(m,inputs,constants)
 				n(IX(end)),...%...................4
 				k(end),...%.......................5
 				I,...%............................6/7/8/9
-				robfit(1).coeffs(2),...%..........10
-				robfit(1).r2,...%.................11
-				range(robfit(1).ci(:,2))/2,...%...12
-				robfit(2).coeffs(2),...%..........13
-				robfit(2).r2,...%.................14
-				range(robfit(2).ci(:,2))/2,...%...15
-				robfit(3).coeffs(2),...%..........16
-				robfit(3).r2,...%.................17
-				range(robfit(3).ci(:,2))/2,...%...18
-				robfit(4).coeffs(2),...%..........19
-				robfit(4).r2,...%.................20
-				range(robfit(4).ci(:,2))/2,...%...21
-				robfit(5).coeffs(2),...%..........22
-				robfit(5).r2,...%.................23
-				range(robfit(5).ci(:,2))/2];%.....24
+				O(1).coeffs(2),...%...............10
+				O(1).r2,...%......................11
+				range(O(1).ci(:,2))/2,...%........12
+				O(2).coeffs(2),...%...............13
+				O(2).r2,...%......................14
+				range(O(2).ci(:,2))/2,...%........15
+				O(3).coeffs(2),...%...............16
+				O(3).r2,...%......................17
+				range(O(3).ci(:,2))/2,...%........18
+				O(4).coeffs(2),...%...............19
+				O(4).r2,...%......................20
+				range(O(4).ci(:,2))/2,...%........21
+				O(5).coeffs(2),...%...............22
+				O(5).r2,...%......................23
+				range(O(5).ci(:,2))/2];%..........24
 			end
 		end
 	else
@@ -469,12 +469,9 @@ end
 function ust = ustar(u,v,w)
     % Determine friction velocity from three orthogonal components
 	% contributor: DOS
-	up = u - mean(u);
-	vp = v - mean(v);
-	wp = w - mean(w);
-	u = detrend(up);
-    v = detrend(vp);
-    w = detrend(wp);
+	u = detrend(u - mean(u));
+	v = detrend(v - mean(v));
+	w = detrend(w - mean(w));
     ii = mean(-u.*w);
     jj = mean(-v.*w);
 	ust = sqrt(sqrt(ii^2 + jj^2));
@@ -508,71 +505,22 @@ function [I,k] = isotropy(n,Suu,Svv,Sww,U)
 	I(:,2) = (Suu - k.*dEuudk)./(2*Svv);
 end
 % 
-function [rfitted,raw] = rlogfit(x,y,varargin)
+function O = robustfit(x,y)
 	% Iterative, robust linear least-squares regression.
 	% Method uses a Cook's Distance algorithm to flag/remove suspicious and influential points from final regression model.
 	% function is based on logfit.m (Matlab fileexchange) included below.
 	% contributor: DOS
+	%
 	
-	% Initial regression model fitting
-	if nargin < 4
-		[fittype,M,B,MSE,R2,S] = logfit(x,y,'nograph');
-		Dthresh = 4; % default value
-	elseif nargin == 4
-		fittype = varargin{1};
-		Dthresh = varargin{2};
-		[M,B,MSE,R2,S] = logfit(x,y,fittype,'nograph');
-	else
-		error('Check number of inputs....')
-	end
-	if nargin == 3
-		Dthresh = varargin{1};
-	end
 	% initial values
 	N = length(x);
 	p = 1; % set for completeness, but rlogfit cannot handle more than 1 predictor, y
-	Dthresh = Dthresh/(N - p - 1); % Chatterjee and Hadi 1988
-	alpha = 0.05; % 95% percentile for two-sided t statistic used in defining confidence interval
-	ci = tinv(1-alpha,S.df-1);
+	Dthresh = 4/(N - p - 1); % Chatterjee and Hadi 1988
+	alpha = 0.05;
 	%
-	% calculate fitted response variable & complete residual
-	if strcmp('linear',fittype)
-		Yfit = B + M*x;
-		SE = stderr(x,y,Yfit);
-		coeffs = [B M];
-		bnds = [...
-			B-SE(2)*ci M-SE(1)*ci;...
-			B+SE(2)*ci M+SE(1)*ci];
-	elseif strcmp('logx',fittype)
-		Yfit = B + M*log10(x);
-		SE = stderr(log10(x),y,Yfit);
-		coeffs = [B M];
-		bnds = [...
-			B-SE(2)*ci M-SE(1)*ci;...
-			B+SE(2)*ci M+SE(1)*ci];
-	elseif strcmp('logy',fittype)
-		Yfit = (10^B)*(10^M).^x;
-		SE = stderr(x,log10(y),log10(Yfit));
-		coeffs = [10^B 10^M];
-		bnds = [...
-			10^(B-SE(2)*ci) 10^(M-SE(1)*ci);...
-			10^(B+SE(2)*ci) 10^(M+SE(1)*ci)];
-	elseif strcmp('loglog',fittype)
-		Yfit = (10^B)*x.^M;
-		SE = stderr(log10(x),log10(y),log10(Yfit));
-		coeffs = [10^B M];
-		bnds = [...
-			10^(B-SE(2)*ci) 10^(M-SE(1)*ci);...
-			10^(B+SE(2)*ci) 10^(M+SE(1)*ci)];
-	end
-	% output to structure
-	raw.model = fittype;
-	raw.coeffs = coeffs; % [B M], re-scaled
-	raw.ci = bnds; % col 1 = lower (upper) bound for B, col 2 = lower (upper) bound for M | re-scaled
-	raw.yfit = Yfit;	
-	raw.mse = MSE;
-	raw.r2 = R2;
-	%
+	%..Initial regression model fitting
+	[M,B,MSE,~,~] = logfit(x,y,'loglog','nograph');
+	Yfit = (10^B)*x.^M;
 	%
 	% begin Cook's distance algorithm
 	Yr = Yfit - y; % raw residual
@@ -581,70 +529,40 @@ function [rfitted,raw] = rlogfit(x,y,varargin)
 		nfit = 1:N;
 		nfit(j) = [];
 		% regression of x and y excluding jth sample
-		[m,b,~,~,~] = logfit(x(nfit),y(nfit),fittype,'nograph');
-		if strcmp('linear',fittype)
-			yfit = b + m*x;
-		elseif strcmp('logx',fittype)
-			yfit = b + m*log10(x);
-		elseif strcmp('logy',fittype)
-			yfit = (10^b)*(10^m).^x;
-		elseif strcmp('loglog',fittype)
-			yfit = (10^b)*x.^m;
-		end
+		[m,b,~,~,~] = logfit(x(nfit),y(nfit),'loglog','nograph');
+		yfit = (10^b)*x.^m;
 		yr = yfit - Yfit;
 		D(j) = sum(yr.^2)/(p*MSE); % Cook's Distance, sum over N excluding sample j
-	end
+    end
+	%
 	% Determine influential points and re-run regression analysis on kept samples
 	x(D > Dthresh) = [];
 	y(D > Dthresh) = [];
 	if length(x) < 3 % this condition could be removed, but the assumption is a curve cannot be fit through less than 3 points
-		rfitted.indx = D<Dthresh;
-		rfitted.D = mean(D(D<Dthresh))/Dthresh;
-		rfitted.coeffs = coeffs;
-		rfitted.yfit = Yfit;
-		rfitted.ci = [inf inf;inf inf];
-		rfitted.mse = MSE;
-		rfitted.r2 = 0;
+		O.indx = D<Dthresh;
+		O.D = mean(D(D<Dthresh))/Dthresh;
+		O.coeffs = [10^B M];
+		O.yfit = Yfit;
+		O.ci = [inf inf;inf inf];
+		O.mse = MSE;
+		O.r2 = 0;
 	else
-		[m,b,mse,r2,s] = logfit(x,y,fittype,'nograph');
-		ci = tinv(1-alpha,s.df-1); % gives 95% confidence interval multiplier for 2-sided distribution
-		if strcmp('linear',fittype)
-			yfit = b + m*x;
-			SE = stderr(x,y,yfit);
-			coeffs = [b m];
-			bnds = [...
-				b-SE(2)*ci m-SE(1)*ci;...
-				b+SE(2)*ci m+SE(1)*ci];
-		elseif strcmp('logx',fittype)
-			yfit = b + m*log10(x);
-			SE = stderr(log10(x),y,yfit);
-			coeffs = [b m];
-			bnds = [...
-				b-SE(2)*ci m-SE(1)*ci;...
-				b+SE(2)*ci m+SE(1)*ci];
-		elseif strcmp('logy',fittype)
-			yfit = (10^b)*(10^m).^x;
-			SE = stderr(x,log10(y),log10(yfit));
-			coeffs = [10^b 10^m];
-			bnds = [...
-				10^(b-SE(2)*ci) 10^(m-SE(1)*ci);...
-				10^(b+SE(2)*ci) 10^(m+SE(1)*ci)];
-		elseif strcmp('loglog',fittype)
-			yfit = (10^b)*x.^m;
-			SE = stderr(log10(x),log10(y),log10(yfit));
-			coeffs = [10^b m];
-			bnds = [...
-				10^(b-SE(2)*ci) (m-SE(1)*ci);...
-				10^(b+SE(2)*ci) (m+SE(1)*ci)];
-		end
+		[m,b,mse,r2,s] = logfit(x,y,'loglog','nograph');
+        ci = tinv(1-alpha,s.df-1); % gives 95% confidence interval multiplier for 2-sided distribution
+		yfit = (10^b)*x.^m;
+		SE = stderr(log10(x),log10(y),log10(yfit));
+		coeffs = [10^b m];
+		bnds = [...
+			10^(b-SE(2)*ci) (m-SE(1)*ci);...
+			10^(b+SE(2)*ci) (m+SE(1)*ci)];
 		% output to structure
-		rfitted.indx = D<Dthresh;
-		rfitted.D = mean(D(D<Dthresh))/Dthresh;
-		rfitted.coeffs = coeffs;
-		rfitted.ci = bnds;
-		rfitted.yfit = yfit;
-		rfitted.mse = mse;
-		rfitted.r2 = r2;
+		O.indx = D<Dthresh;
+		O.D = mean(D(D<Dthresh))/Dthresh;
+		O.coeffs = coeffs;
+		O.ci = bnds;
+		O.yfit = yfit;
+		O.mse = mse;
+		O.r2 = r2;
 	end
 end
 %
@@ -659,72 +577,6 @@ function sep = stderr(x,y,yf)
 	sep = [...
 	sqrt(MSE*sum(x.^2)/(N*SXX)),... % error for slope
 	sqrt(MSE/SXX)]; % error for intercept
-end
-%
-function [sf,stdsf]=logSmooth(f,varargin)
-	%
-	%  [sf,stdsf]=logSmooth(f:array,a)
-	%
-	% Log-uniform smoothing of f using bin-averaging technique.
-	% Inputs:
-	% f --> column vector needing smoothing. If f is array, operates on columns.
-	% !! logSmooth assumes column vector or that inputs are to be operated over columns !!
-	% a (optional) --> smoothing factor. "a" is the slope of the frequency-dependent PDF of the number of samples per averaging bin used to calculate the smooth spectrum. a = 4 has twice as steep a slope as a = 8, therefore a = 4 smooths twice as fast as 8. Given the inverse proportionality of a to slope, a saturates in effectiveness at ~20-24. Therefore, values [2,24] is recommended. 
-	%
-	% Outputs:
-	% sf --> smoothed f (or array).
-	% stdsf --> standard error of the means over each bin, x1.96 gives 95% confidence interval.
-	%
-	% Original code: Ioannis Kalogiros (5/3/2000) in Matlab v5.3
-	% Including "a": D. Ortiz-Suslow (2018) Matlab v2018a/
-	%
-	if size(f,1) == 1
-		f = f(:);
-		warning('logSmooth only takes column vectors or operates over columns')
-	end
-	% Initialization
-	a = 4; % default
-	if nargin > 1
-		a = varargin{1};
-	end
-	nf = size(f,1); % number of frequency bins
-	m = a*(log(nf)/log(2)-1); 
-	m = round(m) - a; % number of uniformly spaced averaging windows
-	if nf<=a || m<=0 % cannot work on very narrow spectra
-		warning('Asking to smooth a spectrum that is shorter than your smoothing window...')
-		sf=f;
-		return
-	end
-	% bin-averaging routine
-	dl = log(nf-a)/m;
-	sf(1:a,:) = 0.5*(f(1:a,:) + f(2:a+1,:)); % leading bin central difference
-	stdsf(1:a,:) = sqrt(0.5*(f(1:a,:) - f(2:a+1,:)).^2); % leading bin central deviation
-	l1p=0; l2p=0; np=[];
-	for n = 1:m
-	   l1 = (n-1)*dl;
-	   l2 = l1+dl;
-	   l1 = round(exp(l1))+a;
-	   l2 = round(exp(l2))+a;
-	   l1 = max(l1,1);
-	   l1 = min(l1,nf);
-	   l2 = max(l2,1);
-	   l2 = min(l2,nf);
-	   if l2==l1 && l2<nf
-		   l2=l2+1;
-	   end
-	   k = l1:l2;
-	   sf(n+a,:) = mean(f(k,:),1);
-	   stdsf(n+a,:) =  std(f(k,:),1);
-	   stdsf(n+a,:) = stdsf(n+a,:)/sqrt(length(k));
-	   if l1==l1p && l2==l2p 
-		   np=[np;n+a];
-	   end
-	   l1p=l1;
-	   l2p=l2;
-	   bins(n,:) = [l1 l2];
-	end
-	sf(np,:)=[];
-	stdsf(np,:) = [];
 end
 %
 function [ruu,rvv,rww,rtt] = m2r(ok,ouu,ovv,oww,ott,WD,htype)
@@ -927,13 +779,16 @@ function S = powspec(varargin)
 	% dt --> sampling interval in units seconds. 1/dt is sampling frequency.
 	% y --> an M x N array of time records for co-spectral analysis with x. If N == 1, co-spectra are calculated against columns of x. If N > 1, then each column of x AND y are used for co-spectral analysis.
 	% "window" --> windowing method for fft, input either "blackhar" or "hamming" for a blackman-harris or hamming window, respectively.
-	% "numperdec" --> number of samples per decade AFTER log-uniform smoothing. If NO SMOOTHING is desired, input, powspec(...,'numperdec',0,...)
+	% "smoothmode" --> 0 or 1, if 0 a log-uniform bin smoothing routine is used; if 1, a the smoothed spectrum contains a uniform number of frequency bins per decade.
+	% "sbins" --> if smoothmode = 0, sbins is the degree of smoothing on a range [2,24] (less if more smoothing), if smoothmode = 1, sbins is the number of frequency bins per decade of spectrum you want in the smoothed output.
 	% "firstbin" --> the first frequency bin to keep in the power spectrum, e.g. powspec(...,'firstbin',0,...), which means that matlab index #1 is the start point. Default is powspec(...,'firstbin',1,...)
 	%
 	% Outputs:
 	%
 	%..initialize
 	a0 = 1;
+	Nfa = 8;
+	smode = 0;
 	x = varargin{1};
 	[Nx,Nc] = size(x);
 	window = blackhar(Nx);
@@ -941,18 +796,20 @@ function S = powspec(varargin)
 	n = 2;
 	if numel(varargin{n}) == 1
 		dt = varargin{n};
-        n = po(n);
+        n = n + 1;
 	else
 		y = varargin{n};
-		n = po(n);
+		n = n + 1;
 		dt = varargin{n};
-		n = po(n);
+		n = n + 1;
 	end
 	for ii = n:2:numel(varargin)
 		if strcmp('window',varargin{ii})
 			evalc(['window = ' varargin{ii+1} '(Nx)']);
-		elseif strcmp('numperdec',varargin{ii})
+		elseif strcmp('sbins',varargin{ii})
 			Nfa = varargin{ii+1};
+		elseif strcmp('smoothmode',varargin{ii})
+			smode = varargin{ii+1};
 		elseif strcmp('firstbin',varargin{ii})
 			a0 = varargin{ii+1};
 		else
@@ -984,14 +841,14 @@ function S = powspec(varargin)
 		   Syy = C*abs(Yy(a0+1:maxb)).^2;
 		   Sxy = C*conj(Xx(a0+1:maxb)).*Yy(a0+1:maxb);
 		   if Nfa ~= 0
-			   [dum,dumvar] = logSmooth([f' Sxx Syy Sxy],Nfa);
+			   [dum,dumvar] = logSmooth([f' Sxx Syy Sxy],Nfa,smode);
 			   S.f = dum(:,1)/2/pi;
 			   S.Pxx(:,ii) = 2*pi*dum(:,2);
-			   S.xs(:,ii) = 2*pi*dumvar(:,2);
+			   S.xs(:,ii) = 2*pi*dumvar(:,1);
 			   S.Pyy(:,ii) = 2*pi*dum(:,3);
-			   S.ys(:,ii) = 2*pi*dumvar(:,3);
+			   S.ys(:,ii) = 2*pi*dumvar(:,2);
 			   S.Pxy(:,ii) = 2*pi*dum(:,4);
-			   S.xys(:,ii) = 2*pi*dumvar(:,4);
+			   S.xys(:,ii) = 2*pi*dumvar(:,3);
 			   S.phs(:,ii) = atan2d(-imag(dum(:,end)),real(dum(:,end)));
 			   S.coh(:,ii) = (dum(:,end).^2)./(dum(:,2).*dum(:,3));
 		   else
@@ -1005,7 +862,7 @@ function S = powspec(varargin)
 		else
 			% smoothing
 			if Nfa ~= 0
-				[dum,dumvar] = logSmooth([f' Sxx],Nfa);
+				[dum,dumvar] = logSmooth([f' Sxx],Nfa,smode);
 				S.f = dum(:,1)/2/pi;
 				S.Pxx(:,ii) = 2*pi*dum(:,2); 
 				S.xs(:,ii) = 2*pi*dumvar(:,2);
@@ -1016,20 +873,133 @@ function S = powspec(varargin)
 		end
 	end
 end
-%
-%.................................................................................
-% below is an unaltered copy/paste of blackhar.m; needed for spectf (above)
-% DISCLAIMER: DOS did NOT write this, original code from M. Donelan & W. Drennan circa 1995
-%.................................................................................
-%
 function w = blackhar(n)
     %
-    % blackhar(N) 
-	% returns the N-point Blackman-Harris window as a column vector
-    % contributor: K.Kahma 1989-07-20
-    m = (2*pi/(n-1))*(0:n-1);
-	m = m';
-    w = (0.35875 - 0.48829*cos(m) + 0.14128*cos(2*m) - 0.01168*cos(3*m));
+    %  BLACKHAR(N) returns the N-point Blackman-Harris window as a column vector
+    %  K.Kahma 1989-07-20
+
+    m = (0:n-1)' * ( 2*pi/(n-1) ) ;
+
+    w = (.35875 - .48829*cos(m) + .14128*cos(2*m) - 0.01168*cos(3*m) ) ;
+end
+function [sf,sef]=logSmooth(f,varargin)
+	%
+	% [sf,sef] = logSmooth([f P])
+	% [sf,sef] = logSmooth([f P],a)
+	% [sf,sef] = logSmooth([f P],a,avgmode)
+	%
+	% Logarithmic smoothing sub-routine that can apply two techniques:
+	% (0) the default method applies log-uniform mean smoothing. Smoothing is controlled by "a" (default value 4).
+	% (1) bin-averaging is applied through uniform decade segmentation. Segmentation is controlled by "a"
+	%
+	% Inputs:
+	% [f P] --> M x N array where "f" is the frequency amplitudes of the unsmoothed P, where P can be M x N-1
+	% a --> smoothing factor. 
+	% * for method (0): "a" is the slope of the frequency-dependent PDF of the number of samples per averaging bin used to calculate the smooth spectrum. a = 4 has twice as steep a slope as a = 8, therefore a = 4 smooths twice as fast as 8. Given the inverse proportionality of a to slope, a saturates in effectiveness at ~20-24. Therefore, values [2,24] is recommended.
+	% * for method(1): "a"-1 is the number of segementations per decade of "f". This number is uniformly applied across all decades.
+	%
+	% Outputs:
+	% sf --> smoothed [f P], all smoothing is done using a mean of the unsmoothed amplitudes within each smoothing bin/segment.
+	% sef --> standard error within each bin. sef = 0 means that there was only 1 amplitude in a given bin.
+	%
+	% Original code (method 0) from Ioannis Kalogiros (2000) in Matlab v5.3
+	% Additional code (method 1 & minor changes) D. Ortiz-Suslow (2020)
+	%
+	%
+	if size(f,1) == 1
+		f = f(:);
+		warning('logSmooth only takes column vectors or operates over columns')
+	end
+	% Initialization
+	a = 4; % default
+	avgmode = 0; % default
+	if nargin > 1
+		a = varargin{1};
+		if length(varargin) == 2
+			avgmode = varargin{2};
+		elseif length(varargin) > 2
+			warning('Ignoring extra input...')
+		end
+	end
+	nf = size(f,1); % number of frequency bins
+	if avgmode == 0
+		% original routine from JK
+		% bin-averaging routine
+		m = a*(log(nf)/log(2)-1); 
+		m = round(m) - a; % number of uniformly spaced averaging windows
+		if nf<=a || m<=0 % cannot work on very narrow spectra
+			warning('Asking to smooth a spectrum that is shorter than your smoothing window...')
+			sf=f;
+			return
+		end
+		dl = log(nf-a)/m;
+		sf(1:a,:) = 0.5*(f(1:a,:) + f(2:a+1,:)); % leading bin central difference
+		sef(1:a,:) = sqrt(0.5*(f(1:a,:) - f(2:a+1,:)).^2); % leading bin central deviation
+		l1p=0; l2p=0; np=[];
+		for n = 1:m
+		   l1 = (n-1)*dl;
+		   l2 = l1+dl;
+		   l1 = round(exp(l1))+a;
+		   l2 = round(exp(l2))+a;
+		   l1 = max(l1,1);
+		   l1 = min(l1,nf);
+		   l2 = max(l2,1);
+		   l2 = min(l2,nf);
+		   if l2==l1 && l2<nf
+			   l2=l2+1;
+		   end
+		   k = l1:l2;
+		   sf(n+a,:) = mean(f(k,:),1);
+		   sef(n+a,:) =  std(f(k,:),1)/sqrt(length(k));
+		   if l1==l1p && l2==l2p 
+			   np=[np;n+a];
+		   end
+		   l1p=l1;
+		   l2p=l2;
+		   bins(n,:) = [l1 l2];
+		end
+		sf(np,:)=[];
+		sef(np,:) = [];
+	elseif avgmode == 1
+		% uniform frequeny amplitudes per decade routine by DOS
+		a = a + 1;
+		n = log10(f(:,1));
+		lb = floor(min(n));
+		ub = ceil(max(n));
+		n = lb:ub;
+		nf = [];
+		sf = [];
+		sef = [];
+		for ii = 1:length(n)-1
+			lb = n(ii);
+			ub = n(ii+1);
+			dumn = logspace(lb,ub,a)';
+			dumsf = zeros(a-1,size(f,2)-1);
+			dumstf = zeros(a-1,size(f,2)-1);
+			for jj = 1:a-1
+				nn = sum(dumn(jj) <= f(:,1) & f(:,1) <= dumn(jj+1));
+				if nn == 0
+					dumsf(jj,:) = nan(1,size(f,2)-1);
+					dumstf(jj,:) = nan(1,size(f,2)-1);
+				elseif nn == 1
+					dumsf(jj,:) = f(dumn(jj) <= f(:,1) & f(:,1) <= dumn(jj+1),2:end);
+					dumstf(jj,:) = nan(1,size(f,2)-1);
+				else
+					dumsf(jj,:) = mean(f(dumn(jj) <= f(:,1) & f(:,1) <= dumn(jj+1),2:end),1);
+					dumstf(jj,:) = std(f(dumn(jj) <= f(:,1) & f(:,1) <= dumn(jj+1),2:end))/sqrt(nn);
+				end
+			end
+			nf = [nf;dumn(1:end-1) + diff(dumn)/2];
+			sf = [sf;dumsf];
+			sef = [sef;dumstf];
+        end
+		sef(isnan(sf(:,1)),:) = [];
+        nf(isnan(sf(:,1))) = [];
+		sf(isnan(sf(:,1)),:) = [];
+		sf = [nf sf];
+	else
+		error('Averaging mode request not recognized: 0 or 1')
+	end
 end
 %.................................................................................
 % below is an unaltered copy/paste of logfit.m
