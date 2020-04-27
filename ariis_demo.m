@@ -10,6 +10,14 @@ clear all; clf; close all
 load('./ariis_test.mat')
 % get sampling interval in seconds
 dt = mean(diff(tn))*(3600*24);
+disp('....')
+disp('ARIIS has two primary modes of operation:')
+disp('Mode 0: input time series of 3D velocities (and scalars) or...')
+disp('Mode 1: input 1 autovariance spectra from velocities (and scalars).')
+disp('In mode 0, you can choose to apply some spectral smoothing (recommended).')
+disp('In mode 1, spectra SHOULD have been smoothed before passing to ARIIS.')
+disp('The demo allows you see ARIIS results after operating with mode 0 or 1...')
+disp('....')
 answ = input('Mode for ARIIS, time series (0) or spectral (1)? ','s');
 if str2num(answ) == 0
 	% build ARIIS input structures
@@ -25,7 +33,8 @@ if str2num(answ) == 0
 	constants.htype = 1; % example uses IRGASON w/ CSAT-type sonic anemometer
 	constants.dpl = 0.1537; % optical path-length of IRGASON gas analyzer
 	constants.fcutoff = 5;
-	constants.smoothing = 1;
+	constants.smoothing = 0; % log-uniform smoothing
+	constants.nfa = 12; % degree of smoothing
 	m = str2num(answ);
 	% call ARIIS
 	A = ariis(m,inputs,constants);
@@ -87,7 +96,7 @@ if str2num(answ) == 0
 	legend([hkol;hl],leglabel,'Location','NorthWest')
 	set(gcf,'Position',[723 9 957 946])
 	disp(['ARIIS smooths spectra, Figure shows un-smoothed spectra.'])
-else
+elseif str2num(answ) == 1
 	varw = var(w);
 	up = detrend(u);
 	vp = detrend(v);
@@ -160,6 +169,8 @@ else
 	xlim([Cuw(1,1)/5 Cuw(end,1)*5])
 	set(ht,'Position',[2.1958 0.59835 0])
 	disp(['Smoothing used by ARIIS matches smoothing in figure.'])
+else
+	error(['Unknown ARIIS mode selected...answer = ' answ])
 end
 disp('ARIIS outputs....')
 disp(['Subrange lo frequency bound = ' num2str(A(2),'%.4f') ' Hz'])
@@ -306,21 +317,30 @@ function w = blackhar(n)
     m = (0:n-1)' * ( 2*pi/(n-1) ) ;
     w = (.35875 - .48829*cos(m) + .14128*cos(2*m) - 0.01168*cos(3*m) ) ;
 end
-function [sf,stdsf]=logSmooth(f,varargin)
+% 
+function [sf,sef]=logSmooth(f,varargin)
 	%
-	% [sf,stdsf]=logSmooth(f,a)
-	% [sf,stdsf]=logSmooth(f)
+	% [sf,sef] = logSmooth([f P])
+	% [sf,sef] = logSmooth([f P],a)
+	% [sf,sef] = logSmooth([f P],a,avgmode)
 	%
-	% Log-uniform smoothing of f using a bin-averaging technique.
+	% Logarithmic smoothing sub-routine that can apply two techniques:
+	% (0) the default method applies log-uniform mean smoothing. Smoothing is controlled by "a" (default value 4).
+	% (1) bin-averaging is applied through uniform decade segmentation. Segmentation is controlled by "a"
 	%
 	% Inputs:
-	% f --> column vector needing smoothing. If f is array, operates on columns.
-	% a (optional) --> number of data points per decade, approximately N = 3*a (approximately). Default a = 4.
+	% [f P] --> M x N array where "f" is the frequency amplitudes of the unsmoothed P, where P can be M x N-1
+	% a --> smoothing factor. 
+	% * for method (0): "a" is the slope of the frequency-dependent PDF of the number of samples per averaging bin used to calculate the smooth spectrum. a = 4 has twice as steep a slope as a = 8, therefore a = 4 smooths twice as fast as 8. Given the inverse proportionality of a to slope, a saturates in effectiveness at ~20-24. Therefore, values [2,24] is recommended.
+	% * for method(1): "a"-1 is the number of segementations per decade of "f". This number is uniformly applied across all decades.
 	%
 	% Outputs:
-	% sf --> smoothed array.
-	% stdsf --> standard error of the means over each bin, x1.96 gives 95% confidence interval.
-	% Contributor: John Kalogiros (2000) & DOS
+	% sf --> smoothed [f P], all smoothing is done using a mean of the unsmoothed amplitudes within each smoothing bin/segment.
+	% sef --> standard error within each bin. sef = 0 means that there was only 1 amplitude in a given bin.
+	%
+	% Original code (method 0) from Ioannis Kalogiros (2000) in Matlab v5.3
+	% Additional code (method 1 & minor changes) D. Ortiz-Suslow (2020)
+	%
 	%
 	if size(f,1) == 1
 		f = f(:);
@@ -328,45 +348,197 @@ function [sf,stdsf]=logSmooth(f,varargin)
 	end
 	% Initialization
 	a = 4; % default
+	avgmode = 0; % default
 	if nargin > 1
 		a = varargin{1};
+		if length(varargin) == 2
+			avgmode = varargin{2};
+		elseif length(varargin) > 2
+			warning('Ignoring extra input...')
+		end
 	end
 	nf = size(f,1); % number of frequency bins
-	m = a*(log(nf)/log(2)-1); 
-	m = round(m) - a; % number of uniformly spaced averaging windows
-	if nf<=a || m<=0 % cannot work on very narrow spectra
-		warning('Asking to smooth a spectrum that is shorter than your smoothing window...')
-		sf=f;
-		return
+	if avgmode == 0
+		% original routine from JK
+		% bin-averaging routine
+		m = a*(log(nf)/log(2)-1); 
+		m = round(m) - a; % number of uniformly spaced averaging windows
+		if nf<=a || m<=0 % cannot work on very narrow spectra
+			warning('Asking to smooth a spectrum that is shorter than your smoothing window...')
+			sf=f;
+			return
+		end
+		dl = log(nf-a)/m;
+		sf(1:a,:) = 0.5*(f(1:a,:) + f(2:a+1,:)); % leading bin central difference
+		sef(1:a,:) = sqrt(0.5*(f(1:a,:) - f(2:a+1,:)).^2); % leading bin central deviation
+		l1p=0; l2p=0; np=[];
+		for n = 1:m
+		   l1 = (n-1)*dl;
+		   l2 = l1+dl;
+		   l1 = round(exp(l1))+a;
+		   l2 = round(exp(l2))+a;
+		   l1 = max(l1,1);
+		   l1 = min(l1,nf);
+		   l2 = max(l2,1);
+		   l2 = min(l2,nf);
+		   if l2==l1 && l2<nf
+			   l2=l2+1;
+		   end
+		   k = l1:l2;
+		   sf(n+a,:) = mean(f(k,:),1);
+		   sef(n+a,:) =  std(f(k,:),1)/sqrt(length(k));
+		   if l1==l1p && l2==l2p 
+			   np=[np;n+a];
+		   end
+		   l1p=l1;
+		   l2p=l2;
+		   bins(n,:) = [l1 l2];
+		end
+		sf(np,:)=[];
+		sef(np,:) = [];
+	elseif avgmode == 1
+		% uniform frequeny amplitudes per decade routine by DOS
+		a = a + 1;
+		n = log10(f(:,1));
+		lb = floor(min(n));
+		ub = ceil(max(n));
+		n = lb:ub;
+		nf = [];
+		sf = [];
+		sef = [];
+		for ii = 1:length(n)-1
+			lb = n(ii);
+			ub = n(ii+1);
+			dumn = logspace(lb,ub,a)';
+			for jj = 1:a-1
+				dumsf(jj,:) = mean(f(dumn(jj) <= f(:,1) & f(:,1) <= dumn(jj+1),2:end));
+				dumstf(jj,:) = sem(f(dumn(jj) <= f(:,1) & f(:,1) <= dumn(jj+1),2:end));
+			end
+			nf = [nf;dumn(1:end-1) + diff(dumn)/2];
+			sf = [sf;dumsf];
+			sef = [sef;dumstf];
+		end
+		sef(isnan(sf)) = [];
+		nf(isnan(sf)) = [];
+		sf(isnan(sf)) = [];
+		sf = [nf sf];
+	else
+		error('Averaging mode request not recognized: 0 or 1')
 	end
-	% bin-averaging routine
-	dl = log(nf-a)/m;
-	sf(1:a,:) = 0.5*(f(1:a,:) + f(2:a+1,:)); % leading bin central difference
-	stdsf(1:a,:) = sqrt(0.5*(f(1:a,:) - f(2:a+1,:)).^2); % leading bin central deviation
-	l1p=0; l2p=0; np=[];
-	for n = 1:m
-	   l1 = (n-1)*dl;
-	   l2 = l1+dl;
-	   l1 = round(exp(l1))+a;
-	   l2 = round(exp(l2))+a;
-	   l1 = max(l1,1);
-	   l1 = min(l1,nf);
-	   l2 = max(l2,1);
-	   l2 = min(l2,nf);
-	   if l2==l1 && l2<nf
-		   l2=l2+1;
-	   end
-	   k = l1:l2;
-	   sf(n+a,:) = mean(f(k,:),1);
-	   stdsf(n+a,:) =  std(f(k,:),1);
-	   stdsf(n+a,:) = stdsf(n+a,:)/sqrt(length(k));
-	   if l1==l1p && l2==l2p 
-		   np=[np;n+a];
-	   end
-	   l1p=l1;
-	   l2p=l2;
-	   bins(n,:) = [l1 l2];
+end
+% 
+function hhh=vline(x,in1,in2)
+	% function h=vline(x, linetype, label)
+	% 
+	% Draws a vertical line on the current axes at the location specified by 'x'.  Optional arguments are
+	% 'linetype' (default is 'r:') and 'label', which applies a text label to the graph near the line.  The
+	% label appears in the same color as the line.
+	%
+	% The line is held on the current axes, and after plotting the line, the function returns the axes to
+	% its prior hold state.
+	%
+	% The HandleVisibility property of the line object is set to "off", so not only does it not appear on
+	% legends, but it is not findable by using findobj.  Specifying an output argument causes the function to
+	% return a handle to the line, so it can be manipulated or deleted.  Also, the HandleVisibility can be 
+	% overridden by setting the root's ShowHiddenHandles property to on.
+	%
+	% Example:
+	% h = vline(42,'g','The Answer')
+	%
+	% % returns a handle to a green vertical line on the current axes at x=42, and 
+	% % creates a text object on the current axes, close to the line, which reads 
+	% % "The Answer".
+	%
+	% % vline also supports vector inputs to draw multiple lines at once:
+	%
+	% vline([4 8 12],{'g','r','b'},{'l1','lab2','LABELC'})
+	%
+	% % draws three lines with the appropriate labels and colors.
+	% close all;
+
+	% 
+	% By Brandon Kuczenski for Kensington Labs.
+	% brandon_kuczenski@kensingtonlabs.com
+	% 8 November 2001
+
+	Nx = length(x);
+	if Nx==0,
+	  h = [];
+	elseif Nx>1  % vector input
+	    for I=1:length(x)
+	        switch nargin
+	        case 1
+	            linetype='r:';
+	            label='';
+	        case 2
+	            if ~iscell(in1)
+	                in1={in1};
+	            end
+	            if I>length(in1)
+	                linetype=in1{end};
+	            else
+	                linetype=in1{I};
+	            end
+	            label='';
+	        case 3
+	            if ~iscell(in1)
+	                in1={in1};
+	            end
+	            if ~iscell(in2)
+	                in2={in2};
+	            end
+	            if I>length(in1)
+	                linetype=in1{end};
+	            else
+	                linetype=in1{I};
+	            end
+	            if I>length(in2)
+	                label=in2{end};
+	            else
+	                label=in2{I};
+	            end
+	        end
+	        h(I)=vline(x(I),linetype,label);
+	    end
+	else
+	    switch nargin
+	    case 1
+	        linetype='r:';
+	        label='';
+	    case 2
+	        linetype=in1;
+	        label='';
+	    case 3
+	        linetype=in1;
+	        label=in2;
+	    end
+
+    
+    
+    
+	    g=ishold(gca);
+	    hold on
+
+	    y=get(gca,'ylim');
+	    h=plot([x x],y,linetype);
+	    if length(label)
+	        xx=get(gca,'xlim');
+	        xrange=xx(2)-xx(1);
+	        xunit=(x-xx(1))/xrange;
+	        if xunit<0.8
+	            text(x+0.01*xrange,y(1)+0.1*(y(2)-y(1)),label,'color',get(h,'color'))
+	        else
+	            text(x-.05*xrange,y(1)+0.1*(y(2)-y(1)),label,'color',get(h,'color'))
+	        end
+	    end     
+
+	    if g==0
+	    hold off
+	    end
+	    set(h,'tag','vline','handlevisibility','off')
+	end % else
+
+	if nargout
+	    hhh=h;
 	end
-	sf(np,:)=[];
-	stdsf(np,:) = [];
 end
